@@ -1,0 +1,145 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using System.Net;
+using System.Net.Sockets;
+using System.Threading;
+using System.Diagnostics;
+
+namespace Spray_Imager_Proposal.Network
+{
+
+    class Client_Class
+    {
+        //Variable
+        const int buffersize = 64; //MAX_BUFFER_SIZE;
+        public byte[] clientBuff;//= new byte[buffersize];
+        public int bytesRead = 0;
+        //Other Variables  
+        int totalCounter = 0;
+        int falseCounter = 0;
+        int trueCounter = 0;
+        int falseLen = 0;
+        int endIndex = 0;
+        int counter_FlawPacket = 0;
+        bool isRecvFlawPacket = false;
+        byte[] totalData; //= new byte[buffersize];      
+        byte[] recvData; //= new byte[buffersize];     
+
+        //Events
+        public event EventHandler client_ReceivedData;
+        public ManualResetEvent ReceiveCompeleted = new ManualResetEvent(false);
+        public event EventHandler<string> ReceivedError;
+
+        //Constructor
+        public Client_Class(Socket socket)
+        {
+            totalData = new byte[socket.ReceiveBufferSize];
+            recvData = new byte[socket.ReceiveBufferSize];
+            clientBuff = new byte[socket.ReceiveBufferSize];
+            socket.BeginReceive(clientBuff, 0, clientBuff.Length, 0, new AsyncCallback(ReceiveCallback), socket);
+        }
+
+        //Methods
+        private void ReceiveCallback(IAsyncResult ar)   //Server is received some commands from client
+        {
+            Socket handler = (Socket)ar.AsyncState;
+            try
+            {
+                // Trace.WriteLine("ReceiveCallback is called.");                
+                // Read data from the remote device.  
+                bytesRead = handler.EndReceive(ar);
+                if (bytesRead > 0)
+                {
+                    // string content = Encoding.ASCII.GetString(clientBuff, 0, bytesRead);
+                    // Trace.WriteLine(content);
+
+                    if (bytesRead == clientBuff.Length)
+                    {
+                        //if (clientBuff[0] == 205 && clientBuff[clientBuff.Length - 1] == 205)
+                        //{
+                        counter_FlawPacket = 0;
+                        isRecvFlawPacket = false;
+                        trueCounter++;
+                        //Trace.WriteLine("counter_FlawPacket: " + counter_FlawPacket + " , receivedBytes: " + bytesRead + " , endIndex: " + endIndex);
+
+                        if (client_ReceivedData != null)
+                        {
+                            client_ReceivedData(this, null);
+                        }
+                        //}
+                    }
+                    else if (bytesRead < clientBuff.Length)
+                    {
+                        falseLen++;
+                        counter_FlawPacket++;
+
+                        isRecvFlawPacket = true;
+                        Buffer.BlockCopy(clientBuff, 0, totalData, endIndex, bytesRead);
+
+                        endIndex += bytesRead; //Update copyOffset to append remaind data to the totalData
+                        // Trace.WriteLine("counter_FlawPacket: " + counter_FlawPacket + " , receivedBytes: " + bytesRead + " , endIndex: " + endIndex);
+
+                        if (endIndex == clientBuff.Length)
+                        {
+                            Buffer.BlockCopy(totalData, 0, recvData, 0, totalData.Length);
+                            //if (recvData[0] == 205 && recvData[clientBuff.Length - 1] == 205)
+                            //{
+                            // Trace.WriteLine("Append " + counter_FlawPacket +" Packet to one array");
+                            isRecvFlawPacket = false;
+                            counter_FlawPacket = 0;
+                            endIndex = 0;
+
+                            //Copy recvData to clientBuff
+                            Buffer.BlockCopy(recvData, 0, clientBuff, 0, clientBuff.Length);
+
+                            if (client_ReceivedData != null)
+                            {
+                                client_ReceivedData(this, null);
+                            }
+                            //}
+                        }
+                    }
+
+                    //Thread.Sleep(100);
+                    // Trace.WriteLine("RecLen: " + bytesRead + "\r\n" + "total: " + totalCounter + ", True: " + trueCounter + ", False: " + falseCounter + ", Len: " + falseLen);
+
+                    // Keep countinue to receive data
+                    handler.BeginReceive(clientBuff, 0, clientBuff.Length, 0, new AsyncCallback(ReceiveCallback), handler);
+
+                }
+                else
+                {
+                    ReceiveCompeleted.Set();
+                    handler.Disconnect(false);
+                    handler.Close();
+                    handler.Dispose();
+
+                    if (ReceivedError != null)
+                    {
+                        ReceivedError(this, "Some bad things happend and client socket closed itself!");
+                    }
+                }
+            }
+            catch (Exception e)
+            {
+                Trace.WriteLine(e);
+                if (handler.Connected)
+                {
+                    handler.Disconnect(false);
+                    handler.Close();
+                    handler.Dispose();
+                }
+                if (ReceivedError != null)
+                {
+                    ReceivedError(this, e.Message);
+                }
+
+            }
+        }
+
+
+    }
+}
