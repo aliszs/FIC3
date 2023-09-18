@@ -1,0 +1,2639 @@
+using System;
+using System.ComponentModel;
+using System.Linq;
+using System.Net;
+using System.Net.NetworkInformation;
+using System.Net.Sockets;
+using System.Text;
+
+using System.Threading;
+using System.Threading.Tasks;
+using System.Windows;
+using System.Windows.Threading;
+
+namespace FIC3
+{
+
+    #region Class
+
+    public class TcpSendCommand
+    {
+        public string BoardName;
+        public UInt16 LAN_Packet_Size;
+        public UInt16 System_Command;
+        public UInt16 sendRegAddress;
+        public UInt32 sendRegData;
+        public bool sendCommandHasAcknowledge;
+        public TcpSendCommand()
+        { }
+    }
+
+    public class LAN : INotifyPropertyChanged
+    {
+        #region Field
+
+        private UInt16 LAN_Packet_size = 1056;
+
+        public string FIC3_Board_IPAddress = "192.168.100.60";
+        public int lanPort = 2023;
+        public IPEndPoint LanEndPoint;
+        public Socket receiveTcpClient;
+        //public Socket sendTcpClient2;
+
+        public Socket sendTcpClient;
+
+        private Task lanSendCommandTask;
+        private Task lanConnectionCheckingTask;
+
+        private string BoardName = "FIC3-V01";
+
+        private byte[] _cmdSendBytes;
+
+        private UInt16 System_Command = 0;
+
+        private Int16 LAN_Packet_Count = 1;
+
+        private bool _flagCapturingStop = false;
+
+        private bool receivedPacketAnalyzerStopping = false;
+
+        private bool sendCommandHasAcknowledge = false;
+
+        private CancellationToken sourceToken;
+
+        private UInt64 PacketNumber = 0;
+
+        private bool patternTask_Stop = false;
+        private bool yeildTcpSendPacketTask;
+
+
+        private UInt32 receivedPacketCount = 0;
+
+        private UInt32 sensorFramePacketCount = 0;
+        private UInt32 sensorReceivedFrameCounter = 0;
+        private UInt32 sensorhighSpeedModeReceivedFrameCounter = 0;
+
+
+        public TcpSendCommand tcpSendCommand;
+
+        private int kk = 0;
+        public UInt16[] sensorRawDataArray;
+
+        private UInt16 sensorImageWidth = 1280;
+        private UInt16 sensorImageHeight = 1024;
+
+        bool capturingStopFlag = false;
+
+        private Int32 sensorReceivedDataIndex = 0;
+
+        public ManualResetEventSlim systemStatusRequestEventSlim = new ManualResetEventSlim();
+        public ManualResetEventSlim systemStatusGrantEventSlim = new ManualResetEventSlim();
+
+        public ManualResetEventSlim showFrameDataGrantEventSlim = new ManualResetEventSlim();
+
+        public ManualResetEventSlim showFrameDataRequestEventSlim = new ManualResetEventSlim();
+
+
+        public ReaderWriterLockSlim capturingStopLockSlim = new ReaderWriterLockSlim();
+        public ReaderWriterLockSlim command4StoppingLockSlim = new ReaderWriterLockSlim();
+
+        public ManualResetEventSlim UserStopEventSlim = new ManualResetEventSlim();
+        public ManualResetEventSlim systemComman1FinishedEventSlim = new ManualResetEventSlim();
+        public ManualResetEventSlim systemCommand3FinishedEventSlim = new ManualResetEventSlim();
+        public ReaderWriterLockSlim spinnerWaitLockSlim = new ReaderWriterLockSlim();
+
+        //-----------------------------------
+        private ManualResetEventSlim dataReceivedAndReadyEventSlim = new ManualResetEventSlim();
+        private ManualResetEventSlim systemContinueToReceivingPacketEventSlim = new ManualResetEventSlim();
+        private ManualResetEventSlim uartContinueToReceivingDataEventSlim = new ManualResetEventSlim();
+        private ReaderWriterLockSlim capturingStoppedLockSlim = new ReaderWriterLockSlim();
+        public ManualResetEventSlim systemCapturingFinishedEventSlim = new ManualResetEventSlim();
+        public ManualResetEventSlim systemProcessExitEventSlim = new ManualResetEventSlim();
+
+        public ManualResetEventSlim tcpSendPacketRequestEventSlim = new ManualResetEventSlim();
+        public ManualResetEventSlim tcpSendPacketGrantEventSlim = new ManualResetEventSlim();
+
+
+        public ManualResetEventSlim receiveDataEventslim = new ManualResetEventSlim();
+        public ManualResetEventSlim sendDataEventslim = new ManualResetEventSlim();
+
+        public ManualResetEventSlim systemCommandFinishedEventSlim = new ManualResetEventSlim();
+
+        public ManualResetEventSlim taskyeildEventSlim = new ManualResetEventSlim();
+        public ManualResetEventSlim SensorCapturingStopTaskYeildEventSlim = new ManualResetEventSlim();
+                
+
+        public int waitingStatus = 0;
+
+        private byte[][] _receivedPacketData = new byte[2][];
+
+        private UInt16 _writeIndex = 0;
+        private UInt16 _readIndex = 0;
+
+        private bool dataReceivedAndReady = false;
+        private bool _systemContinuetoReceivingPacket = true;
+        private bool _capturingStopped = false;
+        private bool _adcCapturingFinished = false;
+
+        DispatcherTimer dispatcherTimer;
+
+        public bool _LAN_ConnectContinue = true;
+        public ManualResetEventSlim LanContinueEventSlim = new ManualResetEventSlim();
+
+        public int stoppp = 0;
+        public bool continueCapturing = true;
+
+        public Mutex Mutex2 = new Mutex();
+        private ReaderWriterLockSlim readerWriterLockSlim = new ReaderWriterLockSlim();
+        public ManualResetEventSlim manual = new ManualResetEventSlim();
+        public CancellationTokenSource LantCancellationTokenSource = new CancellationTokenSource();
+        public CancellationToken lantoken;
+
+        public bool spinnerStop = true;
+
+        public bool _LanConnected = false;
+
+        public string _SystemStatus = "Welcome!";
+        public string _HighSpeedModeReceivedFrames = "0";
+
+        private string _DeviceStatus = "Disconnected!";
+
+        //====================================
+        public UInt16 LAN_Command_WriteToRegister = 0x0001;
+        public UInt16 LAN_Command_WriteToRegisterAcknowledge = 0x00F1;
+        public UInt16 LAN_Command_ReadFromRegister = 0x0002;
+        public UInt16 LAN_Command_ReadFromRegisterAcknowledge = 0x00F2;
+        public UInt16 LAN_Command_ReadFromMemory = 0x0003;
+        public UInt16 LAN_Command_ReadFromMemoryAcknowledge = 0x00F3;
+
+        // -------- General Register Address ------
+        public UInt16 System_Start_Register_Address = 0;
+        public UInt16 Sensor_Start_Register_Address = 1;
+        public UInt16 Sensor_Mode_Register_Address = 2;
+        public UInt16 System_Reset_Register_Address = 3;
+        public UInt16 System_Status_Register_Address = 4;
+        //------ Sensor Register Address ------
+        public UInt16 Sensor_Pattern_Register_Address = 8;
+        public UInt16 Sensor_Row_Start_Register_Address = 9;
+        public UInt16 Sensor_Row_End_Register_Address = 10;
+        public UInt16 Sensor_HighSpeed_Frame_Count_Register_Address = 11;
+        public UInt16 Sensor_Free_Running_Counter_Step_Value_Register_Address = 12;
+        public UInt16 Sensor_Row_Skip_Count_Register_Address = 13;
+        public UInt16 Sensor_Column_Skip_Count_Register_Address = 14;
+        public UInt16 Sensor_Exposure_Time_Register_Address = 15;
+        public UInt16 Sensor_Capture_Delay_Register_Address = 16;
+        public UInt16 Sensor_Reset_Start_Register_Address = 17;
+        public UInt16 Sensor_Reset_Done_Register_Address = 18;
+        public UInt16 Sensor_Calibration_Start_Register_Address = 19;
+        public UInt16 Sensor_Calibration_Done_Register_Address = 20;
+        public UInt16 Sensor_Standby_OFF_ON_Register_Address = 21;
+        public UInt16 Sensor_Standby_Start_Register_Address = 22;
+        public UInt16 Sensor_Standby_Done_Register_Address = 23;
+        public UInt16 Sensor_Module_Status_Register_Address = 24;
+        public UInt16 Sensor_Capturing_Start_Register_Address = 25;
+        public UInt16 Sensor_Capturing_Trigger_Count_Register_Address = 26;
+
+        // -------- General Register Data ------
+        public UInt32 System_Start_Register_Data = 0;
+        public UInt32 Sensor_Start_Register_Data = 0;
+        public UInt32 Sensor_Mode_Register_Data = 0;
+        public UInt32 System_Reset_Register_Data = 0;
+        public UInt32 System_Status_Register_Data = 0;
+        //------ Sensor Register Data ------
+        public UInt32 Sensor_Pattern_Register_Data = 0;
+        public UInt32 Sensor_Row_Start_Register_Data = 0;
+        public UInt32 Sensor_Row_End_Register_Data = 0;
+        public UInt32 Sensor_HighSpeed_Frame_Count_Register_Data = 0;
+        public UInt32 Sensor_Free_Running_Counter_Step_Value_Register_Data = 0;
+        public UInt32 Sensor_Row_Skip_Count_Register_Data = 0;
+        public UInt32 Sensor_Column_Skip_Count_Register_Data = 0;
+        public UInt32 Sensor_Exposure_Time_Register_Data = 0;
+        public UInt32 Sensor_Capture_Delay_Register_Data = 0;
+        public UInt32 Sensor_Reset_Start_Register_Data = 0;
+        public UInt32 Sensor_Reset_Done_Register_Data = 0;
+        public UInt32 Sensor_Calibration_Start_Register_Data = 0;
+        public UInt32 Sensor_Calibration_Done_Register_Data = 0;
+        public UInt32 Sensor_Standby_OFF_ON_Register_Data = 0;
+        public UInt32 Sensor_Standby_Start_Register_Data = 0;
+        public UInt32 Sensor_Standby_Done_Register_Data = 0;
+        public UInt32 Sensor_Module_Status_Register_Data = 0;
+        public UInt32 Sensor_Capturing_Start_Register_Data = 0;
+        public UInt32 Sensor_Capturing_Trigger_Count_Register_Data = 0;
+
+        //====================================
+
+
+
+        //public Bitmap _sensorFrameData = new Bitmap(1280, 1024, System.Drawing.Imaging.PixelFormat.Format24bppRgb);
+
+        public bool _LanConnectingCommand = false;
+
+        public string SystemStatus
+        {
+            get { return _SystemStatus; }
+            set
+            {
+                if (_SystemStatus == value) return;
+                else
+                {
+                    _SystemStatus = value;
+                    OnPropertyChanged("SystemStatus");
+                }
+            }
+        }
+
+        public string HighSpeedModeReceivedFrames
+        {
+            get { return _HighSpeedModeReceivedFrames; }
+            set
+            {
+                if (_HighSpeedModeReceivedFrames == value) return;
+                else
+                {
+                    _HighSpeedModeReceivedFrames = value;
+                    OnPropertyChanged("HighSpeedModeReceivedFrames");
+                }
+            }
+        }
+
+        public string Device_Status
+        {
+            get { return _DeviceStatus; }
+            set
+            {
+                if (_DeviceStatus == value) return;
+                else
+                {
+                    _DeviceStatus = value;
+                    OnPropertyChanged("Device_Status");
+                }
+            }
+        }
+
+        //public string Device_Status
+        //{
+        //    get { return _LANStatus; }
+        //    set
+        //    {
+        //        _LANStatus = value;
+        //        InvokePropertyChanged(new PropertyChangedEventArgs("Device_Status"));
+        //    }
+        //}
+
+        public event PropertyChangedEventHandler PropertyChanged;
+
+        public void InvokePropertyChanged(PropertyChangedEventArgs e)
+        {
+            PropertyChanged?.Invoke(this, e);
+        }
+
+        #endregion
+
+        #region INotifyPropertyChanged Members
+
+        public event PropertyChangedEventHandler LanRecPropertyChanged;
+
+
+        protected virtual void RaisePropertyChanged(string propertyName)
+        {
+            LanRecPropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+        }
+
+        protected virtual void OnPropertyChanged(string propertyName)
+        {
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+        }
+
+        #endregion
+
+        #region Method
+
+        public LAN()
+        {
+            LAN_Packet_size = 1056;
+            for (int i = 0; i < 2; i++)
+            {
+                _receivedPacketData[i] = new byte[LAN_Packet_size];
+            }
+
+            yeildTcpSendPacketTask = false;
+
+            _cmdSendBytes = new byte[LAN_Packet_size];
+            sensorImageWidth = 1280;
+            sensorImageHeight = 1024;
+            sensorRawDataArray = new UInt16[sensorImageWidth * sensorImageHeight];
+
+            dispatcherTimer = new System.Windows.Threading.DispatcherTimer();
+            dispatcherTimer.Tick += new EventHandler(dispatcherTimer_Tick);
+            dispatcherTimer.Interval = new TimeSpan(0, 0, 1);
+
+            tcpSendCommand = new TcpSendCommand();
+            tcpSendCommand.BoardName = this.BoardName;
+            tcpSendCommand.LAN_Packet_Size = this.LAN_Packet_size;
+            tcpSendCommand.System_Command = 0;
+            tcpSendCommand.sendCommandHasAcknowledge = false;
+            tcpSendCommand.sendRegData = 0;
+            tcpSendCommand.sendRegAddress = 0;
+
+        }
+
+        private void dispatcherTimer_Tick(object sender, EventArgs e)
+        {
+            SystemStatus = "Sensor FPS : " + sensorReceivedFrameCounter.ToString();
+            sensorReceivedFrameCounter = 0;
+        }
+
+        //--------------------
+        public void LanConnecting()
+        {
+
+            try
+            {
+                //Thread.Sleep(1);
+                //for (int i = 0; i < 1024; i++)
+                //{
+                //    for (int j = 0; j < 1280; j++)
+                //    {
+                //        rawData[i * 1280 + j] = (ushort)(0);
+                //    }
+                //}
+                //frameData = Convert_Pixel_Array_To_RGB_Image(rawData, 1280, 1024);
+                //showFrameDataRequestEventSlim.Wait();
+                //showFrameDataRequestEventSlim.Reset();
+                //showFrameDataGrantEventSlim.Set();
+                ////Thread.Sleep(1);
+
+                waitingStatus = 1;
+                systemStatusRequestEventSlim.Set();
+                //systemStatusGrantEventSlim.Wait();
+                //systemStatusGrantEventSlim.Reset();
+                Thread.Sleep(10);
+                waitingStatus = 3;
+                systemStatusRequestEventSlim.Set();
+                //systemStatusGrantEventSlim.Wait();
+                //systemStatusGrantEventSlim.Reset();
+
+                Ping pp = new Ping();
+                PingReply x = pp.Send(FIC3_Board_IPAddress, 1500);
+                if (x != null && x.Status != IPStatus.Success)
+                {
+                    SystemStatus = "Device Disconnected!";
+                    Device_Status = "Disconnected!";
+                    // LanForegroundColor = new SolidColorBrush(Color.FromRgb(250, 20, 32));
+                    //  sendTcpClient.Close();
+                    _LanConnected = false;
+                    Thread.Sleep(100);
+                    waitingStatus = 4;
+                    systemStatusRequestEventSlim.Set();
+                    //systemStatusGrantEventSlim.Wait();
+                    //systemStatusGrantEventSlim.Reset();
+                    Thread.Sleep(100);
+                    waitingStatus = 2;
+                    systemStatusRequestEventSlim.Set();
+                    //systemStatusGrantEventSlim.Wait();
+                    //systemStatusGrantEventSlim.Reset();
+                }
+
+                else if (x != null && x.Status == IPStatus.Success)
+                {
+                    //_LanConnected = true;
+                    //Device_Status = "Connected";
+                    //// LanForegroundColor = new SolidColorBrush(Color.FromRgb(20, 200, 30));
+                    //SystemStatus = "Device ready";
+
+                    sendTcpClient = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+                    sendTcpClient.ReceiveBufferSize = 2000000 * LAN_Packet_size;
+                    sendTcpClient.SendBufferSize = 1000 * LAN_Packet_size;
+                    //using (sendTcpClient = new TcpClient(FIC3_Board_IPAddress, lanPort))
+
+                    try
+                    {
+                        //sendTcpClient.ExclusiveAddressUse = true;
+                        //sendTcpClient.NoDelay = true;
+                        var result = sendTcpClient.BeginConnect(FIC3_Board_IPAddress, lanPort, null, null);
+                        if (result.AsyncWaitHandle.WaitOne(100, true))
+                        {
+                            Thread.Sleep(100);
+                            if (sendTcpClient.Connected)
+                            {
+                                _LanConnected = true;
+                                yeildTcpSendPacketTask = false;
+                                Device_Status = "Connected";
+                                SystemStatus = "Device ready!";
+                                //sendTcpClient.EndConnect(result);
+                                Thread.Sleep(100);
+                                waitingStatus = 5;
+                                systemStatusRequestEventSlim.Set();
+                                //systemStatusGrantEventSlim.Wait();
+                                //systemStatusGrantEventSlim.Reset();
+                                Thread.Sleep(100);
+                                waitingStatus = 2;
+                                systemStatusRequestEventSlim.Set();
+                                //systemStatusGrantEventSlim.Wait();
+                                //systemStatusGrantEventSlim.Reset();
+                                lanSendCommandTask = Task.Factory.StartNew(tcpSendPacket_Task_Function);
+                                lanConnectionCheckingTask = Task.Factory.StartNew(LanConnectionChecking);
+
+                            }
+                            else
+                            {
+                                Device_Status = "Disconnected";
+                                SystemStatus = "Device is On but system can not connect to host, please check IP address and Port number!";
+                                _LanConnected = false;
+                                Thread.Sleep(100);
+                                waitingStatus = 4;
+                                systemStatusRequestEventSlim.Set();
+                                //systemStatusGrantEventSlim.Wait();
+                                //systemStatusGrantEventSlim.Reset();
+                                Thread.Sleep(100);
+                                waitingStatus = 2;
+                                systemStatusRequestEventSlim.Set();
+                                //systemStatusGrantEventSlim.Wait();
+                                //systemStatusGrantEventSlim.Reset();
+                            }
+                        }
+                        else
+                        {
+                            Device_Status = "Disconnected";
+                            SystemStatus = "Device is On but system can not connect to host, please check IP address and Port number!";
+                            _LanConnected = false;
+                            Thread.Sleep(100);
+                            waitingStatus = 4;
+                            systemStatusRequestEventSlim.Set();
+                            //systemStatusGrantEventSlim.Wait();
+                            //systemStatusGrantEventSlim.Reset();
+                            Thread.Sleep(100);
+                            waitingStatus = 2;
+                            systemStatusRequestEventSlim.Set();
+                            //systemStatusGrantEventSlim.Wait();
+                            //systemStatusGrantEventSlim.Reset();
+                        }
+                    }
+                    catch (Exception e)
+                    {
+                        MessageBox.Show(e.ToString());
+                    }
+                }
+            }
+            catch (Exception e)
+            {
+                throw;
+            }
+        }
+
+        //--------------------
+        private void LanConnectionChecking()
+        {
+            while (true)
+            {
+                //if (_LanConnected)
+                //{
+                //    Ping pp = new Ping();
+                //    PingReply x = pp.Send(FIC3_Board_IPAddress, 1500);
+                //    if (x != null && x.Status != IPStatus.Success)
+                //    {
+                //        SystemStatus = "Device Disconnected!";
+                //        Device_Status = "Disconnected!";
+                //        _LanConnected = false;
+                //        Thread.Sleep(100);
+                //        waitingStatus = 4;
+                //        systemStatusRequestEventSlim.Set();
+                //        Thread.Sleep(100);
+                //        waitingStatus = 2;
+                //        systemStatusRequestEventSlim.Set();
+                //        break;
+                //    }
+                //    else
+                //    {
+                //        //SystemStatus = "Device Connected!";
+                //        //Device_Status = "Connected!";
+                //        _LanConnected = true;
+                //        Thread.Sleep(100);
+                //        waitingStatus = 5;
+                //        systemStatusRequestEventSlim.Set();
+                //        Thread.Sleep(100);
+                //        waitingStatus = 2;
+                //        systemStatusRequestEventSlim.Set();
+                //    }
+
+                //}
+                Thread.Sleep(200);
+            }
+        }
+
+        //-----------------------
+        public void LanDisconnecting()
+        {
+            try
+            {
+                //userDisconnectingLockSlim.EnterWriteLock();
+                //userDisconnecting = true;
+                //userDisconnectingLockSlim.ExitWriteLock();
+                //Thread.Sleep(300);
+                // myLan.//spinnerWaitLockSlim.EnterWriteLock();
+                if (_LanConnected)
+                {
+                    _LanConnected = false;
+                    sendTcpClient.Disconnect(true);
+                    sendTcpClient.Close();
+                    sendTcpClient.Dispose();
+                    yeildTcpSendPacketTask = true;
+                }
+                waitingStatus = 1;
+                systemStatusRequestEventSlim.Set();
+                //systemStatusGrantEventSlim.Wait();
+                //systemStatusGrantEventSlim.Reset();
+                Thread.Sleep(100);
+                waitingStatus = 4;
+                systemStatusRequestEventSlim.Set();
+                //systemStatusGrantEventSlim.Wait();
+                //systemStatusGrantEventSlim.Reset();
+                Thread.Sleep(100);
+                waitingStatus = 2;
+                systemStatusRequestEventSlim.Set();
+                //systemStatusGrantEventSlim.Wait();
+                //systemStatusGrantEventSlim.Reset();
+
+                //  myLan.//spinnerWaitLockSlim.ExitWriteLock();
+                SystemStatus = "bye!";
+                Device_Status = "Disconnected";
+                Thread.Sleep(100);
+                GC.Collect(0, GCCollectionMode.Forced);
+            }
+            catch (Exception e)
+            {
+                MessageBox.Show(e.ToString());
+            }
+        }
+
+        //-------------------------
+        private void LanStatusChecking()
+        {
+            Ping pp = new Ping();
+            PingReply x;
+
+            while (true)
+            {
+                //  Task.Delay(300);
+                x = pp.Send(FIC3_Board_IPAddress, 300);
+                if (x.Status == IPStatus.DestinationHostUnreachable)
+                {
+                    // lbl_Device_Status.Text = "Host Unreachable";
+                    // btn_Test.Enabled = true;
+                    // await Task.Yield();
+                    var completionSource = new TaskCompletionSource<object>();
+                    sourceToken.Register(() => completionSource.TrySetCanceled());
+                    _LanConnected = false;
+                    SystemStatus = "Destination host Unreachable!!!";
+                    break;
+                }
+
+                if (x.Status == IPStatus.Success)
+                {
+                    // lbl_Device_Status.Text = "Connected";
+                    // btn_Test.Enabled = false;
+                    _LanConnected = true;
+                }
+                else if (x.Status != IPStatus.Success)
+                {
+                    // lbl_Device_Status.Text = "Disconnected";
+                    //  btn_Test.Enabled = true;
+                    // await Task.Yield();
+                    var completionSource = new TaskCompletionSource<object>();
+                    sourceToken.Register(() => completionSource.TrySetCanceled());
+                    //  sourceToken.CancelAfter(100);
+                    //await Task.Yield();
+                    //sourceToken.ThrowIfCancellationRequested();
+                    // receiveSocket.Shutdown(SocketShutdown.Both);
+                    // sendTcpClient.Close();
+                    break;
+                }
+            }
+        }
+
+        //----------------------
+        public byte[] PC_To_FPGA_Packet_Data(string BoardName, int lanPacketSize, UInt16 System_Command, UInt16 RegAddress, UInt32 RegData)
+        {
+            int Index = 0;
+            byte[] Final_Command = Enumerable.Repeat((byte)0x00, lanPacketSize).ToArray();
+
+            try
+            {
+                byte[] FIC3_Board_Name = new byte[8];
+                FIC3_Board_Name = Encoding.ASCII.GetBytes(BoardName);
+                Buffer.BlockCopy(FIC3_Board_Name, 0, Final_Command, Index, FIC3_Board_Name.Length);
+                Index += FIC3_Board_Name.Length;
+                //--------------
+                byte[] System_CMD = new byte[2];
+                System_CMD = BitConverter.GetBytes(System_Command);
+                Buffer.BlockCopy(System_CMD, 0, Final_Command, Index, System_CMD.Length);
+                Index += System_CMD.Length;
+                //--------------
+                byte[] Register_Address = new byte[2];
+                Register_Address = BitConverter.GetBytes(RegAddress);
+                Buffer.BlockCopy(Register_Address, 0, Final_Command, Index, Register_Address.Length);
+                Index += Register_Address.Length;
+                //--------------
+                byte[] Register_Data = new byte[4];
+                Register_Data = BitConverter.GetBytes(RegData);
+                Buffer.BlockCopy(Register_Data, 0, Final_Command, Index, Register_Data.Length);
+                Index += Register_Data.Length;
+                //--------------
+                for (int i = Index; i < lanPacketSize; i++)
+                {
+                    Final_Command[i] = 0;
+                }
+
+                return Final_Command;
+            }
+            catch (Exception)
+            {
+                return Final_Command;
+            }
+
+        }
+
+        //----------------------------        
+        public void tcpSendPacket_Task_Function()
+        {
+            while (true)
+            {
+                tcpSendPacketRequestEventSlim.Wait();
+                tcpSendPacketRequestEventSlim.Reset();
+                if (yeildTcpSendPacketTask)
+                {
+                    break;
+                }
+                else
+                {
+                    Send_Receive_CMD_Packet(sendTcpClient, tcpSendCommand);
+                    tcpSendPacketGrantEventSlim.Set();
+                }
+            }
+        }
+
+        //public bool Send_Receive_CMD_Packet(Socket tcpClient, string boardName, int lanPacketSize, UInt16 sendCommand, UInt16 sendRegAddress, UInt32 sendRegData, bool sendCommandHasAcknowledge)
+        public bool Send_Receive_CMD_Packet(Socket tcpClient, TcpSendCommand tcpSendCommand)
+        {
+            UInt16 receiveCommand = (ushort)((tcpSendCommand.System_Command & 0x000F) | 0x00F0);
+            UInt16 receiveRegAddress = tcpSendCommand.sendRegAddress;
+            UInt32 receiveRegData = tcpSendCommand.sendRegData;
+            bool result = false;
+            //NetworkStream networkStream = tcpClient.GetStream();
+            _cmdSendBytes = PC_To_FPGA_Packet_Data(tcpSendCommand.BoardName, tcpSendCommand.LAN_Packet_Size, tcpSendCommand.System_Command, tcpSendCommand.sendRegAddress, tcpSendCommand.sendRegData);
+
+            try
+            {
+                if (tcpSendCommand.sendCommandHasAcknowledge)
+                {
+                    while (true)
+                    {
+                        //sendTcpClient.Send(_cmdSendBytes, 0, tcpSendCommand.LAN_Packet_Size, SocketFlags.None);
+                        //networkStream.Write(_cmdSendBytes,0, lanPacketSize);
+                        //while (tcpClient.Available < lanPacketSize) ;
+                        tcpClient.BeginSend(_cmdSendBytes, 0, tcpSendCommand.LAN_Packet_Size, SocketFlags.None, new AsyncCallback(SendData), tcpClient);
+                        //sendTcpClient.Receive(_receivedPacketData[_writeIndex], 0, lanPacketSize, SocketFlags.None);
+                        //var fg = networkStream.Read(_receivedPacketData[_writeIndex], 0, lanPacketSize);
+                        sendDataEventslim.Wait();
+                        sendDataEventslim.Reset();
+                        //while (tcpClient.Available < tcpSendCommand.LAN_Packet_Size) ;
+                        tcpClient.BeginReceive(_receivedPacketData[_writeIndex], 0, tcpSendCommand.LAN_Packet_Size, SocketFlags.None, new AsyncCallback(ReceiveData), tcpClient);
+                        //sendTcpClient.Receive(_receivedPacketData[_writeIndex], 0, tcpSendCommand.LAN_Packet_Size, SocketFlags.None);
+                        receiveDataEventslim.Wait();
+                        receiveDataEventslim.Reset();
+                        if (Encoding.ASCII.GetString(_receivedPacketData[_writeIndex], 0, 8) == tcpSendCommand.BoardName)
+                        {
+                            if (BitConverter.ToUInt16(_receivedPacketData[_writeIndex], 8) == receiveCommand)
+                            {
+                                if (BitConverter.ToUInt16(_receivedPacketData[_writeIndex], 10) == receiveRegAddress)
+                                {
+                                    if (BitConverter.ToUInt32(_receivedPacketData[_writeIndex], 12) == receiveRegData)
+                                    {
+                                        result = true;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                else
+                {
+                    sendTcpClient.Send(_cmdSendBytes, 0, tcpSendCommand.LAN_Packet_Size, SocketFlags.None);
+                    //tcpClient.BeginSend(_cmdSendBytes, 0, tcpSendCommand.LAN_Packet_Size, SocketFlags.None, new AsyncCallback(SendData), tcpClient);
+                    result = true;
+                }
+                return result;
+            }
+            catch (Exception)
+            {
+                return result;
+            }
+        }
+
+        //public bool Send_Receive_CMD_Packet(Socket tcpClient, string boardName, int lanPacketSize, UInt16 sendCommand, UInt16 sendRegAddress, UInt32 sendRegData)
+        //{
+        //    UInt16 receiveCommand = (ushort)((sendCommand & 0x000F) | 0x00F0);
+        //    UInt16 receiveRegAddress = sendRegAddress;
+        //    UInt32 receiveRegData = sendRegData;
+        //    bool result = false;
+        //    //NetworkStream networkStream = tcpClient.GetStream();
+        //    _cmdSendBytes = PC_To_FPGA_Packet_Data(boardName, lanPacketSize, sendCommand, sendRegAddress, sendRegData);
+
+        //    try
+        //    {
+        //        while (true)
+        //        {
+        //            sendTcpClient.Send(_cmdSendBytes, 0, lanPacketSize, SocketFlags.None);
+        //            //networkStream.Write(_cmdSendBytes,0, lanPacketSize);
+        //            //while (tcpClient.Available < lanPacketSize) ;
+        //            //tcpClient.BeginSend(_cmdSendBytes, 0, lanPacketSize, SocketFlags.None, new AsyncCallback(SendData), tcpClient);
+        //            //sendTcpClient.Receive(_receivedPacketData[_writeIndex], 0, lanPacketSize, SocketFlags.None);
+        //            //var fg = networkStream.Read(_receivedPacketData[_writeIndex], 0, lanPacketSize);
+        //            //sendDataEventslim.Wait();
+        //            //sendDataEventslim.Reset();
+        //            while (tcpClient.Available < lanPacketSize) ;
+        //            //tcpClient.BeginReceive(_receivedPacketData[_writeIndex], 0, lanPacketSize, SocketFlags.None, new AsyncCallback(ReceiveData), tcpClient);
+        //            sendTcpClient.Receive(_receivedPacketData[_writeIndex], 0, lanPacketSize, SocketFlags.None);
+        //            //receiveDataEventslim.Wait();
+        //            //receiveDataEventslim.Reset();
+        //            if (Encoding.ASCII.GetString(_receivedPacketData[_writeIndex], 0, 8) == BoardName)
+        //            {
+        //                if (BitConverter.ToUInt16(_receivedPacketData[_writeIndex], 8) == receiveCommand)
+        //                {
+        //                    if (BitConverter.ToUInt16(_receivedPacketData[_writeIndex], 10) == receiveRegAddress)
+        //                    {
+        //                        if (BitConverter.ToUInt32(_receivedPacketData[_writeIndex], 12) == receiveRegData)
+        //                        {
+        //                            result = true;
+        //                            break;
+        //                        }
+        //                    }
+        //                }
+        //            }
+        //        }
+        //        return result;
+        //    }
+        //    catch (Exception)
+        //    {
+        //        return result;
+        //    }
+
+        //}
+
+
+        //-----------------------------------
+
+        void ReceiveData(IAsyncResult iar)
+        {
+            Socket remote = (Socket)iar.AsyncState;
+            int recv = remote.EndReceive(iar);
+            receiveDataEventslim.Set();
+        }
+
+        void SendData(IAsyncResult iar)
+        {
+            Socket remote = (Socket)iar.AsyncState;
+            int sent = remote.EndSend(iar);
+            sendDataEventslim.Set();
+        }
+
+        //--------------------
+        private void captureReceivedData(byte[] Data)
+        {
+            if ((Encoding.ASCII.GetString(Data, 0, 8)) == BoardName)
+            {
+                if (BitConverter.ToUInt16(Data, 8) == LAN_Command_ReadFromMemory)
+                {
+                    UInt16[] temp = new UInt16[640];
+                    temp = Convert_Packet_Data_To_Nibble_Row_Data_Array(Data, 640);
+                    Convert_Nibble_Row_Data_Array_To_Pixel_Array(temp, ref sensorRawDataArray, ref sensorReceivedDataIndex);
+                    receivedPacketCount++;
+                }
+
+            }
+        }
+
+        private UInt16[] Convert_Packet_Data_To_Nibble_Row_Data_Array(byte[] packetData, int packetPixelCount)
+        {
+            UInt16[] data_Out = new ushort[packetPixelCount];
+            int j = 32;
+            for (UInt16 i = 0; i < packetPixelCount; i += 10)
+            {
+                data_Out[i] = (ushort)(Convert.ToUInt16((packetData[j + 1] & 0x03) << 8) | Convert.ToUInt16(packetData[j]));
+                //-------
+                data_Out[i + 1] = (ushort)(Convert.ToUInt16((packetData[j + 2] & 0x0F) << 6) | Convert.ToUInt16(((packetData[j + 1] & 0xFC)) >> 2));
+                //-------
+                data_Out[i + 2] = (ushort)(Convert.ToUInt16((packetData[j + 3] & 0x3F) << 4) | Convert.ToUInt16(((packetData[j + 2] & 0xF0)) >> 4));
+                //-------
+                data_Out[i + 3] = (ushort)(Convert.ToUInt16(packetData[j + 4] << 2) | Convert.ToUInt16(((packetData[j + 3] & 0xC0)) >> 6));
+                //======
+                data_Out[i + 4] = (ushort)(Convert.ToUInt16((packetData[j + 6] & 0x03) << 8) | Convert.ToUInt16(packetData[j + 5]));
+                //-------
+                data_Out[i + 5] = (ushort)(Convert.ToUInt16((packetData[j + 7] & 0x0F) << 6) | Convert.ToUInt16(((packetData[j + 6] & 0xFC)) >> 2));
+                //-------
+                data_Out[i + 6] = (ushort)(Convert.ToUInt16((packetData[j + 8] & 0x3F) << 4) | Convert.ToUInt16(((packetData[j + 7] & 0xF0)) >> 4));
+                //-------
+                data_Out[i + 7] = (ushort)(Convert.ToUInt16(packetData[j + 9] << 2) | Convert.ToUInt16(((packetData[j + 7] & 0xC0)) >> 6));
+                //======
+                data_Out[i + 8] = (ushort)(Convert.ToUInt16((packetData[j + 11] & 0x03) << 8) | Convert.ToUInt16(packetData[j + 10]));
+                //-------
+                data_Out[i + 9] = (ushort)(Convert.ToUInt16((packetData[j + 12] & 0x0F) << 6) | Convert.ToUInt16(((packetData[j + 11] & 0xFC)) >> 2));
+
+                j = j + 16;
+            }
+            return data_Out;
+        }
+
+        private void Convert_Nibble_Row_Data_Array_To_Pixel_Array(UInt16[] packetData, ref UInt16[] rawData, ref int rawDataIndex)
+        {
+            Buffer.BlockCopy(packetData, 0, rawData, rawDataIndex, 1280);
+            rawDataIndex += 1280;
+        }
+
+        //private Bitmap Convert_Pixel_Array_To_RGB_Image(UInt16[] raw_Data, int w, int h)
+        //{
+        //    Bitmap b_Out = new Bitmap(w, h, System.Drawing.Imaging.PixelFormat.Format24bppRgb);
+
+        //    BitmapData bmd_Out = b_Out.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.ReadWrite, System.Drawing.Imaging.PixelFormat.Format24bppRgb);
+
+        //    int stride = bmd_Out.Stride;
+        //    int jump = stride - 3 * w;
+
+        //    try
+        //    {
+        //        unsafe
+        //        {
+        //            byte* ptr_Out = (byte*)((void*)bmd_Out.Scan0);
+
+        //            // Process
+        //            // Fill entry[] from left to right
+        //            int index = 0;
+
+        //            for (int y = 0; y < h; y++)
+        //            {
+        //                for (int x = 0; x < w; x++)
+        //                {
+
+        //                    //Apply FPN LUT
+        //                    byte level;
+        //                    //level = lut_Mapping[raw_Data[index]];
+
+        //                    *(ptr_Out + 0) = (byte)(raw_Data[index] / 4); //B
+        //                    *(ptr_Out + 1) = (byte)(raw_Data[index] / 4); //G
+        //                    *(ptr_Out + 2) = (byte)(raw_Data[index] / 4); //R
+
+        //                    ptr_Out += 3;
+        //                    index++;
+
+        //                }
+        //                ptr_Out += jump;
+        //            }
+
+        //            b_Out.UnlockBits(bmd_Out);
+        //        }
+
+        //        return b_Out;
+
+        //    }
+        //    catch (Exception)
+        //    {
+        //        return b_Out;
+        //    }  
+        //}
+
+
+        //--------------------
+
+
+        //--------------------
+        public void SensorCapturingData_TaskRunning()
+        {
+            // Sensor Capturing Data Mode
+            // 1- Checking the Sensor_StandBy_register_Done : if 1 then send standby off command to Board, else got to step 2 
+            // 2- Checking Calibraion_Done Register : if not ok set callibratio_start_Register and then check Calibraion_Done Register repeetedly till become 1
+            // 3- set All Control Register and wait for feedbacks
+            // 4- set System_Start_Register to 1 and waiting for feedback
+            // 5- set Sensor_Start_register to 1 and waiting for feedback
+            // 6- receive all Packet_Data form LAN and convert to Pixel_Array
+            // 7- in High speed Mode after all frame received, set Sensor_Stop_register to 1 and send it to FPGA Board and waiting for feedback and go to step 9
+            // 8- in Live Mode if user lcikc the System_stop button, set Sensor_Stop_register to 1 and send it to FPGA Board and waiting for feedback and go to step 9
+            // 9- Close the task and LAN Socket
+
+
+            waitingStatus = 1;
+            systemStatusRequestEventSlim.Set();
+            //systemStatusGrantEventSlim.Wait();
+            //systemStatusGrantEventSlim.Reset();
+            //SystemStatus = "Command1 Started!";
+            Thread.Sleep(100);
+            waitingStatus = 6;
+            systemStatusRequestEventSlim.Set();
+            //systemStatusGrantEventSlim.Wait();
+            //systemStatusGrantEventSlim.Reset();
+
+            patternTask_Stop = false;
+            dataReceivedAndReady = false;
+            receivedPacketAnalyzerStopping = false;
+            taskyeildEventSlim.Reset();
+            receiveDataEventslim.Reset();
+            dataReceivedAndReadyEventSlim.Reset();
+            systemContinueToReceivingPacketEventSlim.Reset();
+            systemCapturingFinishedEventSlim.Reset();
+            systemProcessExitEventSlim.Reset();
+
+            tcpSendPacketRequestEventSlim.Reset();
+            tcpSendPacketGrantEventSlim.Reset();
+
+            sensorReceivedDataIndex = 0;
+            //Array.Fill<ushort>(sensorRawDataArray, 0);
+            //Array.Fill<byte>(_receivedPacketData[0], 0);
+            //Array.Fill<byte>(_receivedPacketData[1], 0);
+            Array.Clear(sensorRawDataArray);
+            Array.Clear(_receivedPacketData[0]);
+            Array.Clear(_receivedPacketData[1]);
+
+            _writeIndex = 0;
+
+            sensorFramePacketCount = (Sensor_Row_End_Register_Data - Sensor_Row_Start_Register_Data + 1) * 2;
+
+            ////------ Sensor Register Data ------
+            //Sensor_Row_Start_Register_Data = 1;
+
+            sensorhighSpeedModeReceivedFrameCounter = 0;
+            receivedPacketCount = 0;
+
+            Thread.Sleep(100);
+            while (true)
+            {
+                if (sendTcpClient.Available >= LAN_Packet_size)
+                {
+                    sendTcpClient.Receive(_receivedPacketData[_writeIndex], 0, LAN_Packet_size, SocketFlags.None);
+                    //networkStream.Read(_receivedPacketData[_writeIndex], 0, LAN_Packet_size);
+                    //sendTcpClient.BeginReceive(_receivedPacketData[_writeIndex], 0, LAN_Packet_size, SocketFlags.None, new AsyncCallback(ReceiveData), sendTcpClient);
+                    //receiveDataEventslim.Wait();
+                    //receiveDataEventslim.Reset();
+                }
+                else if ((sendTcpClient.Available < LAN_Packet_size) && (sendTcpClient.Available != 0))
+                {
+                    sendTcpClient.Receive(_receivedPacketData[_writeIndex], 0, sendTcpClient.Available, SocketFlags.None);
+                    //networkStream.Read(_receivedPacketData[_writeIndex], 0, LAN_Packet_size);
+                    //sendTcpClient.BeginReceive(_receivedPacketData[_writeIndex], 0, sendTcpClient.Available, SocketFlags.None, new AsyncCallback(ReceiveData), sendTcpClient);
+                    //receiveDataEventslim.Wait();
+                    //receiveDataEventslim.Reset();
+                }
+                else
+                {
+                    break;
+                }
+            }
+
+            Task.Factory.StartNew(System_Packet_Proccess);
+
+            //------------
+            // Sending Sensor_CapturingMode_Register Command and waiting for feedback 
+            tcpSendCommand.System_Command = LAN_Command_WriteToRegister;
+            tcpSendCommand.sendCommandHasAcknowledge = true;
+            tcpSendCommand.sendRegAddress = Sensor_Mode_Register_Address;
+            tcpSendCommand.sendRegData = Sensor_Mode_Register_Data;
+            tcpSendPacketRequestEventSlim.Set();
+            tcpSendPacketGrantEventSlim.Wait();
+            tcpSendPacketGrantEventSlim.Reset();
+            // Reading Sensor_CapturingMode_Register and waiting for Data                      
+            tcpSendCommand.System_Command = LAN_Command_ReadFromRegister;
+            tcpSendPacketRequestEventSlim.Set();
+            tcpSendPacketGrantEventSlim.Wait();
+            tcpSendPacketGrantEventSlim.Reset();
+
+            //----------//--------
+            // Sending Sensor_Capturing_Start_Register Command and waiting for feedback 
+            Sensor_Capturing_Start_Register_Data = 0;
+            tcpSendCommand.System_Command = LAN_Command_WriteToRegister;
+            tcpSendCommand.sendCommandHasAcknowledge = false;
+            tcpSendCommand.sendRegAddress = Sensor_Capturing_Start_Register_Address;
+            tcpSendCommand.sendRegData = Sensor_Capturing_Start_Register_Data;
+            tcpSendPacketRequestEventSlim.Set();
+            tcpSendPacketGrantEventSlim.Wait();
+            tcpSendPacketGrantEventSlim.Reset();
+
+            //------------------------
+            // Sending System_Start_Register Command and waiting for feedback  (Stop the system)
+            System_Start_Register_Data = 0;
+            tcpSendCommand.System_Command = LAN_Command_WriteToRegister;
+            tcpSendCommand.sendCommandHasAcknowledge = true;
+            tcpSendCommand.sendRegAddress = System_Start_Register_Address;
+            tcpSendCommand.sendRegData = System_Start_Register_Data;
+            tcpSendPacketRequestEventSlim.Set();
+            tcpSendPacketGrantEventSlim.Wait();
+            tcpSendPacketGrantEventSlim.Reset();
+            // Reading System_Start_Register and waiting for Data                      
+            tcpSendCommand.System_Command = LAN_Command_ReadFromRegister;
+            tcpSendPacketRequestEventSlim.Set();
+            tcpSendPacketGrantEventSlim.Wait();
+            tcpSendPacketGrantEventSlim.Reset();
+            Thread.Sleep(100);
+
+            //------------------------
+            //// Sending System_Reset_Start Command and waiting for feedback 
+            System_Reset_Register_Data = 1;
+            tcpSendCommand.System_Command = LAN_Command_WriteToRegister;
+            tcpSendCommand.sendCommandHasAcknowledge = true;
+            tcpSendCommand.sendRegAddress = System_Reset_Register_Address;
+            tcpSendCommand.sendRegData = System_Reset_Register_Data;
+            tcpSendPacketRequestEventSlim.Set();
+            tcpSendPacketGrantEventSlim.Wait();
+            tcpSendPacketGrantEventSlim.Reset();
+            Thread.Sleep(100);
+            ////------------
+            //// Sending System_Reset_Stop Command and waiting for feedback 
+            System_Reset_Register_Data = 0;
+            tcpSendCommand.System_Command = LAN_Command_WriteToRegister;
+            tcpSendCommand.sendCommandHasAcknowledge = true;
+            tcpSendCommand.sendRegAddress = System_Reset_Register_Address;
+            tcpSendCommand.sendRegData = System_Reset_Register_Data;
+            tcpSendPacketRequestEventSlim.Set();
+            tcpSendPacketGrantEventSlim.Wait();
+            tcpSendPacketGrantEventSlim.Reset();
+            Thread.Sleep(100);
+            // Sending System_Reset_Stop Command and waiting for feedback 
+            System_Reset_Register_Data = 0;
+            tcpSendCommand.System_Command = LAN_Command_ReadFromRegister;
+            tcpSendCommand.sendCommandHasAcknowledge = true;
+            tcpSendCommand.sendRegAddress = System_Reset_Register_Address;
+            tcpSendCommand.sendRegData = System_Reset_Register_Data;
+            tcpSendPacketRequestEventSlim.Set();
+            tcpSendPacketGrantEventSlim.Wait();
+            tcpSendPacketGrantEventSlim.Reset();
+            Thread.Sleep(100);
+
+            //------------------
+            // Sending Sensor_Pattern_Register Command and waiting for feedback 
+            tcpSendCommand.System_Command = LAN_Command_WriteToRegister;
+            tcpSendCommand.sendCommandHasAcknowledge = true;
+            tcpSendCommand.sendRegAddress = Sensor_Pattern_Register_Address;
+            tcpSendCommand.sendRegData = Sensor_Pattern_Register_Data;
+            tcpSendPacketRequestEventSlim.Set();
+            tcpSendPacketGrantEventSlim.Wait();
+            tcpSendPacketGrantEventSlim.Reset();
+            // Reading Sensor_Pattern_Register and waiting for Data                      
+            tcpSendCommand.System_Command = LAN_Command_ReadFromRegister;
+            tcpSendPacketRequestEventSlim.Set();
+            tcpSendPacketGrantEventSlim.Wait();
+            tcpSendPacketGrantEventSlim.Reset();
+            //------------------
+            // Sending Sensor_Row_Start_Register Command and waiting for feedback 
+            tcpSendCommand.System_Command = LAN_Command_WriteToRegister;
+            tcpSendCommand.sendCommandHasAcknowledge = true;
+            tcpSendCommand.sendRegAddress = Sensor_Row_Start_Register_Address;
+            tcpSendCommand.sendRegData = Sensor_Row_Start_Register_Data;
+            tcpSendPacketRequestEventSlim.Set();
+            tcpSendPacketGrantEventSlim.Wait();
+            tcpSendPacketGrantEventSlim.Reset();
+            // Reading Sensor_Row_Start_Register and waiting for Data                      
+            tcpSendCommand.System_Command = LAN_Command_ReadFromRegister;
+            tcpSendPacketRequestEventSlim.Set();
+            tcpSendPacketGrantEventSlim.Wait();
+            tcpSendPacketGrantEventSlim.Reset();
+            //------------------
+            // Sending Sensor_Row_End_Register Command and waiting for feedback 
+            tcpSendCommand.System_Command = LAN_Command_WriteToRegister;
+            tcpSendCommand.sendCommandHasAcknowledge = true;
+            tcpSendCommand.sendRegAddress = Sensor_Row_End_Register_Address;
+            tcpSendCommand.sendRegData = Sensor_Row_End_Register_Data;
+            tcpSendPacketRequestEventSlim.Set();
+            tcpSendPacketGrantEventSlim.Wait();
+            tcpSendPacketGrantEventSlim.Reset();
+            // Reading Sensor_Row_End_Register and waiting for Data                      
+            tcpSendCommand.System_Command = LAN_Command_ReadFromRegister;
+            tcpSendPacketRequestEventSlim.Set();
+            tcpSendPacketGrantEventSlim.Wait();
+            tcpSendPacketGrantEventSlim.Reset();
+            //------------------
+            // Sending Sensor_HighSpeed_Frame_Count_Register Command and waiting for feedback 
+            tcpSendCommand.System_Command = LAN_Command_WriteToRegister;
+            tcpSendCommand.sendCommandHasAcknowledge = true;
+            tcpSendCommand.sendRegAddress = Sensor_HighSpeed_Frame_Count_Register_Address;
+            tcpSendCommand.sendRegData = Sensor_HighSpeed_Frame_Count_Register_Data;
+            tcpSendPacketRequestEventSlim.Set();
+            tcpSendPacketGrantEventSlim.Wait();
+            tcpSendPacketGrantEventSlim.Reset();
+            // Reading Sensor_HighSpeed_Frame_Count_Register and waiting for Data                      
+            tcpSendCommand.System_Command = LAN_Command_ReadFromRegister;
+            tcpSendPacketRequestEventSlim.Set();
+            tcpSendPacketGrantEventSlim.Wait();
+            tcpSendPacketGrantEventSlim.Reset();
+            //------------------
+            // Sending Sensor_Free_Running_Counter_Step_Value_Register Command and waiting for feedback 
+            tcpSendCommand.System_Command = LAN_Command_WriteToRegister;
+            tcpSendCommand.sendCommandHasAcknowledge = true;
+            tcpSendCommand.sendRegAddress = Sensor_Free_Running_Counter_Step_Value_Register_Address;
+            tcpSendCommand.sendRegData = Sensor_Free_Running_Counter_Step_Value_Register_Data;
+            tcpSendPacketRequestEventSlim.Set();
+            tcpSendPacketGrantEventSlim.Wait();
+            tcpSendPacketGrantEventSlim.Reset();
+            // Reading Sensor_Free_Running_Counter_Step_Value_Register and waiting for Data                      
+            tcpSendCommand.System_Command = LAN_Command_ReadFromRegister;
+            tcpSendPacketRequestEventSlim.Set();
+            tcpSendPacketGrantEventSlim.Wait();
+            tcpSendPacketGrantEventSlim.Reset();
+            //------------------
+            // Sending Sensor_Exposure_Time_Register Command and waiting for feedback 
+            tcpSendCommand.System_Command = LAN_Command_WriteToRegister;
+            tcpSendCommand.sendCommandHasAcknowledge = true;
+            tcpSendCommand.sendRegAddress = Sensor_Exposure_Time_Register_Address;
+            tcpSendCommand.sendRegData = Sensor_Exposure_Time_Register_Data;
+            tcpSendPacketRequestEventSlim.Set();
+            tcpSendPacketGrantEventSlim.Wait();
+            tcpSendPacketGrantEventSlim.Reset();
+            // Reading Sensor_Exposure_Time_Register and waiting for Data                      
+            tcpSendCommand.System_Command = LAN_Command_ReadFromRegister;
+            tcpSendPacketRequestEventSlim.Set();
+            tcpSendPacketGrantEventSlim.Wait();
+            tcpSendPacketGrantEventSlim.Reset();
+            //------------------
+            // Sending Sensor_Capturing_Trigger_Count_Register Command and waiting for feedback 
+            tcpSendCommand.System_Command = LAN_Command_WriteToRegister;
+            tcpSendCommand.sendCommandHasAcknowledge = true;
+            tcpSendCommand.sendRegAddress = Sensor_Capturing_Trigger_Count_Register_Address;
+            tcpSendCommand.sendRegData = Sensor_Capturing_Trigger_Count_Register_Data;
+            tcpSendPacketRequestEventSlim.Set();
+            tcpSendPacketGrantEventSlim.Wait();
+            tcpSendPacketGrantEventSlim.Reset();
+            // Reading Sensor_Capturing_Trigger_Count_Register and waiting for Data                      
+            tcpSendCommand.System_Command = LAN_Command_ReadFromRegister;
+            tcpSendPacketRequestEventSlim.Set();
+            tcpSendPacketGrantEventSlim.Wait();
+            tcpSendPacketGrantEventSlim.Reset();
+            
+
+            ////---------//////---------
+            //// Sending Sensor_Calibration_Start_Register Command and waiting for feedback 
+            //Sensor_Calibration_Start_Register_Data = 1;
+            //tcpSendCommand.System_Command = LAN_Command_WriteToRegister;
+            //tcpSendCommand.sendCommandHasAcknowledge = true;
+            //tcpSendCommand.sendRegAddress = Sensor_Calibration_Start_Register_Address;
+            //tcpSendCommand.sendRegData = Sensor_Calibration_Start_Register_Data;
+            //tcpSendPacketRequestEventSlim.Set();
+            //tcpSendPacketGrantEventSlim.Wait();
+            //tcpSendPacketGrantEventSlim.Reset();
+
+            //// Reading Sensor_Calibration_Done_Register and waiting for Data                      
+            //Sensor_Calibration_Done_Register_Data = 1;
+            //tcpSendCommand.System_Command = LAN_Command_ReadFromRegister;
+            //tcpSendCommand.sendCommandHasAcknowledge = true;
+            //tcpSendCommand.sendRegAddress = Sensor_Calibration_Done_Register_Address;
+            //tcpSendCommand.sendRegData = Sensor_Calibration_Done_Register_Data;
+            //tcpSendPacketRequestEventSlim.Set();
+            //tcpSendPacketGrantEventSlim.Wait();
+            //tcpSendPacketGrantEventSlim.Reset();
+
+            //// Sending Sensor_Calibration_Done_Register Command and waiting for feedback 
+            //Sensor_Calibration_Done_Register_Data = 0;
+            //tcpSendCommand.System_Command = LAN_Command_WriteToRegister;
+            //tcpSendCommand.sendCommandHasAcknowledge = true;
+            //tcpSendCommand.sendRegAddress = Sensor_Calibration_Done_Register_Address;
+            //tcpSendCommand.sendRegData = Sensor_Calibration_Done_Register_Data;
+            //tcpSendPacketRequestEventSlim.Set();
+            //tcpSendPacketGrantEventSlim.Wait();
+            //tcpSendPacketGrantEventSlim.Reset();
+
+
+            //----------//--------
+            // Sending System_Start_Register Command and waiting for feedback 
+            System_Start_Register_Data = 1;
+            tcpSendCommand.System_Command = LAN_Command_WriteToRegister;
+            tcpSendCommand.sendCommandHasAcknowledge = true;
+            tcpSendCommand.sendRegAddress = System_Start_Register_Address;
+            tcpSendCommand.sendRegData = System_Start_Register_Data;
+            tcpSendPacketRequestEventSlim.Set();
+            tcpSendPacketGrantEventSlim.Wait();
+            tcpSendPacketGrantEventSlim.Reset();
+            // Reading System_Start_Register and waiting for Data                      
+            tcpSendCommand.System_Command = LAN_Command_ReadFromRegister;
+            tcpSendPacketRequestEventSlim.Set();
+            tcpSendPacketGrantEventSlim.Wait();
+            tcpSendPacketGrantEventSlim.Reset();
+            //------------------
+            // Sending Sensor_Start_Register Command and waiting for feedback 
+            Sensor_Start_Register_Data = 1;
+            tcpSendCommand.System_Command = LAN_Command_WriteToRegister;
+            tcpSendCommand.sendCommandHasAcknowledge = false;
+            tcpSendCommand.sendRegAddress = Sensor_Start_Register_Address;
+            tcpSendCommand.sendRegData = Sensor_Start_Register_Data;
+            tcpSendPacketRequestEventSlim.Set();
+            tcpSendPacketGrantEventSlim.Wait();
+            tcpSendPacketGrantEventSlim.Reset();
+
+
+            while (sendTcpClient.Available < LAN_Packet_size) ;
+            Thread.Sleep(100);
+            dispatcherTimer.Start();
+            //while (System_Start_Register_Data == 1)
+            while (true)
+            {
+                if (_LanConnected)
+                {
+                    if (sendTcpClient.Available >= LAN_Packet_size)
+                    {
+                        //networkStream.Read(_receivedPacketData[_writeIndex], 0, LAN_Packet_size);
+                        sendTcpClient.Receive(_receivedPacketData[_writeIndex], 0, LAN_Packet_size, SocketFlags.None);
+                        //sendTcpClient.BeginReceive(_receivedPacketData[_writeIndex], 0, LAN_Packet_size, SocketFlags.None, new AsyncCallback(ReceiveData), sendTcpClient);
+                        //receiveDataEventslim.Wait();
+                        //receiveDataEventslim.Reset();
+                        dataReceivedAndReady = true;
+                        dataReceivedAndReadyEventSlim.Set();
+                        //captureReceivedData(_receivedPacketData[_writeIndex]);
+                        //_systemContinuetoReceivingPacket = true;
+                        //systemContinueToReceivingPacketEventSlim.Set();
+                        //if (receivedPacketCount == sensorFramePacketCount)
+                        //{
+                        //    receivedPacketCount = 0;
+                        //    sensorReceivedDataIndex = 0;
+                        //    showFrameDataRequestEventSlim.Set();
+                        //    showFrameDataGrantEventSlim.Wait();
+                        //    showFrameDataGrantEventSlim.Reset();
+                        //}
+                    }
+                    else
+                    {
+                        continue;
+                    }
+                    systemContinueToReceivingPacketEventSlim.Wait();
+                    systemContinueToReceivingPacketEventSlim.Reset();
+
+                    if (!_systemContinuetoReceivingPacket)
+                    {
+                        //systemCapturingFinishedEventSlim.Wait();
+                        //systemCapturingFinishedEventSlim.Reset();
+                        Thread.Sleep(400);
+                        while (true)
+                        {
+                            if (sendTcpClient.Available >= LAN_Packet_size)
+                            {
+                                sendTcpClient.Receive(_receivedPacketData[_writeIndex], 0, LAN_Packet_size, SocketFlags.None);
+                                //networkStream.Read(_receivedPacketData[_writeIndex], 0, LAN_Packet_size);
+                                //sendTcpClient.BeginReceive(_receivedPacketData[_writeIndex], 0, LAN_Packet_size, SocketFlags.None, new AsyncCallback(ReceiveData), sendTcpClient);
+                                //receiveDataEventslim.Wait();
+                                //receiveDataEventslim.Reset();
+                            }
+                            else if ((sendTcpClient.Available < LAN_Packet_size) && (sendTcpClient.Available != 0))
+                            {
+                                sendTcpClient.Receive(_receivedPacketData[_writeIndex], 0, sendTcpClient.Available, SocketFlags.None);
+                                //networkStream.Read(_receivedPacketData[_writeIndex], 0, LAN_Packet_size);
+                                //sendTcpClient.BeginReceive(_receivedPacketData[_writeIndex], 0, sendTcpClient.Available, SocketFlags.None, new AsyncCallback(ReceiveData), sendTcpClient);
+                                //receiveDataEventslim.Wait();
+                                //receiveDataEventslim.Reset();
+                            }
+                            else
+                            {
+                                break;
+                            }
+                        }
+                        break;
+                    }
+                }
+                else
+                {
+                    break;
+                }
+            } // End of while
+
+            dispatcherTimer.Stop();
+
+            dataReceivedAndReady = false;
+            dataReceivedAndReadyEventSlim.Set();
+            systemProcessExitEventSlim.Wait();
+            systemProcessExitEventSlim.Reset();
+
+            if (_LanConnected)
+            {
+                ////------------
+                //// Sending Sensor_CapturingMode_Register Command and waiting for feedback 
+                //Sensor_Mode_Register_Data = 3; // Sensor None Mode Selected
+                //tcpSendCommand.System_Command = LAN_Command_WriteToRegister;
+                //tcpSendCommand.sendCommandHasAcknowledge = false;
+                //tcpSendCommand.sendRegAddress = Sensor_Mode_Register_Address;
+                //tcpSendCommand.sendRegData = Sensor_Mode_Register_Data;
+                //tcpSendPacketRequestEventSlim.Set();
+                //tcpSendPacketGrantEventSlim.Wait();
+                //tcpSendPacketGrantEventSlim.Reset();
+
+                // Sending System_Start_Register Command and waiting for feedback  (Stop the system)
+                System_Start_Register_Data = 0;
+                tcpSendCommand.System_Command = LAN_Command_WriteToRegister;
+                tcpSendCommand.sendCommandHasAcknowledge = false;
+                tcpSendCommand.sendRegAddress = System_Start_Register_Address;
+                tcpSendCommand.sendRegData = System_Start_Register_Data;
+                tcpSendPacketRequestEventSlim.Set();
+                tcpSendPacketGrantEventSlim.Wait();
+                tcpSendPacketGrantEventSlim.Reset();
+                //// Reading System_Start_Register and waiting for Data                      
+                //tcpSendCommand.System_Command = LAN_Command_ReadFromRegister;
+                //tcpSendPacketRequestEventSlim.Set();
+                //tcpSendPacketGrantEventSlim.Wait();
+                //tcpSendPacketGrantEventSlim.Reset();
+
+                //////------------------
+                ////// Sending Sensor_Start_Register Command and waiting for feedback 
+                ////Sensor_Start_Register_Data = 0;
+                ////tcpSendCommand.System_Command = LAN_Command_WriteToRegister;
+                ////tcpSendCommand.sendCommandHasAcknowledge = false;
+                ////tcpSendCommand.sendRegAddress = Sensor_Start_Register_Address;
+                ////tcpSendCommand.sendRegData = Sensor_Start_Register_Data;
+                ////tcpSendPacketRequestEventSlim.Set();
+                ////tcpSendPacketGrantEventSlim.Wait();
+                ////tcpSendPacketGrantEventSlim.Reset();
+
+
+                Thread.Sleep(400);
+                while (true)
+                {
+                    if (sendTcpClient.Available >= LAN_Packet_size)
+                    {
+                        sendTcpClient.Receive(_receivedPacketData[_writeIndex], 0, LAN_Packet_size, SocketFlags.None);
+                        //networkStream.Read(_receivedPacketData[_writeIndex], 0, LAN_Packet_size);
+                        //sendTcpClient.BeginReceive(_receivedPacketData[_writeIndex], 0, LAN_Packet_size, SocketFlags.None, new AsyncCallback(ReceiveData), sendTcpClient);
+                        //receiveDataEventslim.Wait();
+                        //receiveDataEventslim.Reset();
+                    }
+                    else if ((sendTcpClient.Available < LAN_Packet_size) && (sendTcpClient.Available != 0))
+                    {
+                        sendTcpClient.Receive(_receivedPacketData[_writeIndex], 0, sendTcpClient.Available, SocketFlags.None);
+                        //networkStream.Read(_receivedPacketData[_writeIndex], 0, LAN_Packet_size);
+                        //sendTcpClient.BeginReceive(_receivedPacketData[_writeIndex], 0, sendTcpClient.Available, SocketFlags.None, new AsyncCallback(ReceiveData), sendTcpClient);
+                        //receiveDataEventslim.Wait();
+                        //receiveDataEventslim.Reset();
+                    }
+                    else
+                    {
+                        break;
+                    }
+                }
+
+                if (Sensor_Mode_Register_Data == 0)
+                {
+                    SystemStatus = "High Speed Capturing Done!";
+                }
+                else if (Sensor_Mode_Register_Data == 1)
+                {
+                    SystemStatus = "Live Capturing Done!";
+                }
+
+                //waitingStatus = 2;
+                //systemStatusRequestEventSlim.Set();
+                //systemStatusGrantEventSlim.Wait();
+                //systemStatusGrantEventSlim.Reset();
+                //Thread.Sleep(300);
+                waitingStatus = 5;
+                systemStatusRequestEventSlim.Set();
+                //systemStatusGrantEventSlim.Wait();
+                //systemStatusGrantEventSlim.Reset();
+
+            }
+
+            Thread.Sleep(300);
+            dataReceivedAndReady = false;
+            _systemContinuetoReceivingPacket = false;
+
+            dataReceivedAndReadyEventSlim.Reset();
+            systemContinueToReceivingPacketEventSlim.Reset();
+            systemProcessExitEventSlim.Reset();
+
+            _writeIndex = 0;
+            _readIndex = 0;
+            receivedPacketCount = 0;
+            sensorReceivedFrameCounter = 0;
+            sensorhighSpeedModeReceivedFrameCounter = 0;
+
+            taskyeildEventSlim.Set();
+            GC.Collect(0, GCCollectionMode.Forced);
+            //Thread.Yield();
+
+        }
+
+
+
+        //------------------
+        public void SensorStandby_TaskRunning()
+        {
+            // 1- set Sensor_Start_register to 0 and waiting for feedback
+            // 2- set System_Start_Register to 1 and waiting for feedback
+            // 3- set Sensor_Start_register to 1 and waiting for feedback
+            // 4- Sensor_Standby_Start_Register = 1
+            // 5- Checking Sensor_Standby_Start_Register = 0
+            // 6- Checking Sensor_Standby_Done_Register = 1
+            // 7- Sensor_Standby_Done_Register = 0
+
+            if (Sensor_Standby_OFF_ON_Register_Data == 0)
+            {
+                SystemStatus = "Sensor Standby-OFF Starting ...";
+            }
+            else
+            {
+                SystemStatus = "Sensor Standby-ON Starting ...";
+            }
+            waitingStatus = 1;
+            systemStatusRequestEventSlim.Set();
+            Thread.Sleep(200);
+            waitingStatus = 6;
+            systemStatusRequestEventSlim.Set();
+
+            //------------------
+            // Sending Sensor_Mode_Register_Data Command and waiting for feedback 
+            Sensor_Mode_Register_Data = 2; // Sensor Configuration Mode selected
+            tcpSendCommand.System_Command = LAN_Command_WriteToRegister;
+            tcpSendCommand.sendCommandHasAcknowledge = false;
+            tcpSendCommand.sendRegAddress = Sensor_Mode_Register_Address;
+            tcpSendCommand.sendRegData = Sensor_Mode_Register_Data;
+            tcpSendPacketRequestEventSlim.Set();
+            tcpSendPacketGrantEventSlim.Wait();
+            tcpSendPacketGrantEventSlim.Reset();
+            Thread.Sleep(50);
+
+            //------------------
+            // Sending Sensor_Start_Register Command and waiting for feedback 
+            Sensor_Start_Register_Data = 0;
+            tcpSendCommand.System_Command = LAN_Command_WriteToRegister;
+            tcpSendCommand.sendCommandHasAcknowledge = false;
+            tcpSendCommand.sendRegAddress = Sensor_Start_Register_Address;
+            tcpSendCommand.sendRegData = Sensor_Start_Register_Data;
+            tcpSendPacketRequestEventSlim.Set();
+            tcpSendPacketGrantEventSlim.Wait();
+            tcpSendPacketGrantEventSlim.Reset();
+
+            //------------------
+            // Sending System_Start_Register Command and waiting for feedback 
+            System_Start_Register_Data = 1;
+            tcpSendCommand.System_Command = LAN_Command_WriteToRegister;
+            tcpSendCommand.sendCommandHasAcknowledge = false;
+            tcpSendCommand.sendRegAddress = System_Start_Register_Address;
+            tcpSendCommand.sendRegData = System_Start_Register_Data;
+            tcpSendPacketRequestEventSlim.Set();
+            tcpSendPacketGrantEventSlim.Wait();
+            tcpSendPacketGrantEventSlim.Reset();
+            // Reading System_Start_Register and waiting for Data                      
+            tcpSendCommand.System_Command = LAN_Command_ReadFromRegister;
+            tcpSendPacketRequestEventSlim.Set();
+            tcpSendPacketGrantEventSlim.Wait();
+            tcpSendPacketGrantEventSlim.Reset();
+            //------------------
+            // Sending Sensor_Start_Register Command and waiting for feedback 
+            Sensor_Start_Register_Data = 1;
+            tcpSendCommand.System_Command = LAN_Command_WriteToRegister;
+            tcpSendCommand.sendCommandHasAcknowledge = false;
+            tcpSendCommand.sendRegAddress = Sensor_Start_Register_Address;
+            tcpSendCommand.sendRegData = Sensor_Start_Register_Data;
+            tcpSendPacketRequestEventSlim.Set();
+            tcpSendPacketGrantEventSlim.Wait();
+            tcpSendPacketGrantEventSlim.Reset();
+
+            //----------------
+            // Sending Sensor_Standby_Start_Register Command and waiting for feedback 
+            Sensor_Standby_Start_Register_Data = 1;
+            tcpSendCommand.System_Command = LAN_Command_WriteToRegister;
+            tcpSendCommand.sendCommandHasAcknowledge = false;
+            tcpSendCommand.sendRegAddress = Sensor_Standby_Start_Register_Address;
+            tcpSendCommand.sendRegData = Sensor_Standby_Start_Register_Data;
+            tcpSendPacketRequestEventSlim.Set();
+            tcpSendPacketGrantEventSlim.Wait();
+            tcpSendPacketGrantEventSlim.Reset();
+
+            //----------------
+            //// Sending Sensor_Standby_Start_Register Command and waiting for feedback 
+            //Sensor_Standby_Start_Register_Data = 0;
+            //tcpSendCommand.System_Command = LAN_Command_ReadFromRegister;
+            //tcpSendCommand.sendCommandHasAcknowledge = true;
+            //tcpSendCommand.sendRegAddress = Sensor_Standby_Start_Register_Address;
+            //tcpSendCommand.sendRegData = Sensor_Standby_Start_Register_Data;
+            //tcpSendPacketRequestEventSlim.Set();
+            //tcpSendPacketGrantEventSlim.Wait();
+            //tcpSendPacketGrantEventSlim.Reset();
+
+            Thread.Sleep(300);
+
+            //----------------
+            // Sending Sensor_Standby_Done_Register Command and waiting for feedback 
+            Sensor_Standby_Done_Register_Data = 1;
+            tcpSendCommand.System_Command = LAN_Command_ReadFromRegister;
+            tcpSendCommand.sendCommandHasAcknowledge = true;
+            tcpSendCommand.sendRegAddress = Sensor_Standby_Done_Register_Address;
+            tcpSendCommand.sendRegData = Sensor_Standby_Done_Register_Data;
+            tcpSendPacketRequestEventSlim.Set();
+            tcpSendPacketGrantEventSlim.Wait();
+            tcpSendPacketGrantEventSlim.Reset();
+
+            //----------------
+            // Sending Sensor_Standby_Done_Register Command and waiting for feedback 
+            Sensor_Standby_Done_Register_Data = 0;
+            tcpSendCommand.System_Command = LAN_Command_WriteToRegister;
+            tcpSendCommand.sendCommandHasAcknowledge = true;
+            tcpSendCommand.sendRegAddress = Sensor_Standby_Done_Register_Address;
+            tcpSendCommand.sendRegData = Sensor_Standby_Done_Register_Data;
+            tcpSendPacketRequestEventSlim.Set();
+            tcpSendPacketGrantEventSlim.Wait();
+            tcpSendPacketGrantEventSlim.Reset();
+
+            //------------------
+            // Sending Sensor_Mode_Register_Data Command and waiting for feedback 
+            Sensor_Mode_Register_Data = 3; // Sensor None Mode selected
+            tcpSendCommand.System_Command = LAN_Command_WriteToRegister;
+            tcpSendCommand.sendCommandHasAcknowledge = false;
+            tcpSendCommand.sendRegAddress = Sensor_Mode_Register_Address;
+            tcpSendCommand.sendRegData = Sensor_Mode_Register_Data;
+            tcpSendPacketRequestEventSlim.Set();
+            tcpSendPacketGrantEventSlim.Wait();
+            tcpSendPacketGrantEventSlim.Reset();
+            Thread.Sleep(50);
+
+            //------------------
+            // Sending Sensor_Start_Register Command and waiting for feedback 
+            Sensor_Start_Register_Data = 0;
+            tcpSendCommand.System_Command = LAN_Command_WriteToRegister;
+            tcpSendCommand.sendCommandHasAcknowledge = false;
+            tcpSendCommand.sendRegAddress = Sensor_Start_Register_Address;
+            tcpSendCommand.sendRegData = Sensor_Start_Register_Data;
+            tcpSendPacketRequestEventSlim.Set();
+            tcpSendPacketGrantEventSlim.Wait();
+            tcpSendPacketGrantEventSlim.Reset();
+
+
+            if (Sensor_Standby_OFF_ON_Register_Data == 0)
+            {
+                SystemStatus = "Sensor Standby-OFF Done!";
+            }
+            else
+            {
+                SystemStatus = "Sensor Standby-ON Done!";
+            }
+            waitingStatus = 5;
+            systemStatusRequestEventSlim.Set();
+
+        }
+
+        //-------------------
+        public void SensorCalibration_TaskRunning()
+        {
+            // 1- set System_Start_Register to 1 and waiting for feedback
+            // 2- set Sensor_Start_register to 1 and waiting for feedback
+            // 3- set Sensor to Standby-On mode
+            //   3-1 Sensor_Standby_Start_Register = 1  
+            //   3-2 Checking Sensor_Standby_Start_Register = 0
+            //   3-3 Checking Sensor_Standby_Done_Register = 1
+            //   3-4 Sensor_Standby_Done_Register = 0
+            // 4- wait for 300 ms 
+            // 5- Sensor_Calibration_Start_Register = 1
+            // 6- Checking Sensor_Calibration_Start_Register = 0
+            // 7- Checking Sensor_Calibration_Done_Register = 1
+            // 8- Sensor_Calibration_Done_Register = 0
+
+
+
+            //-------------------
+            Sensor_Standby_OFF_ON_Register_Data = 0; // set sensor Standby-on = 1
+            SensorStandby_TaskRunning();
+
+            SystemStatus = "Sensor Calibration Start ...";
+            waitingStatus = 1;
+            systemStatusRequestEventSlim.Set();
+            Thread.Sleep(200);
+            waitingStatus = 6;
+            systemStatusRequestEventSlim.Set();
+            Thread.Sleep(100);
+
+            //------------------
+            // Sending Sensor_Mode_Register_Data Command and waiting for feedback 
+            Sensor_Mode_Register_Data = 2; // Sensor Configuration Mode selected
+            tcpSendCommand.System_Command = LAN_Command_WriteToRegister;
+            tcpSendCommand.sendCommandHasAcknowledge = false;
+            tcpSendCommand.sendRegAddress = Sensor_Mode_Register_Address;
+            tcpSendCommand.sendRegData = Sensor_Mode_Register_Data;
+            tcpSendPacketRequestEventSlim.Set();
+            tcpSendPacketGrantEventSlim.Wait();
+            tcpSendPacketGrantEventSlim.Reset();
+            Thread.Sleep(50);
+
+
+            //------------
+            // Sending Sensor_CapturingMode_Register Command and waiting for feedback 
+            tcpSendCommand.System_Command = LAN_Command_WriteToRegister;
+            tcpSendCommand.sendCommandHasAcknowledge = true;
+            tcpSendCommand.sendRegAddress = Sensor_Mode_Register_Address;
+            tcpSendCommand.sendRegData = Sensor_Mode_Register_Data;
+            tcpSendPacketRequestEventSlim.Set();
+            tcpSendPacketGrantEventSlim.Wait();
+            tcpSendPacketGrantEventSlim.Reset();
+
+
+            //------------------
+            // Sending Sensor_Start_Register Command and waiting for feedback 
+            Sensor_Start_Register_Data = 1;
+            tcpSendCommand.System_Command = LAN_Command_WriteToRegister;
+            tcpSendCommand.sendCommandHasAcknowledge = false;
+            tcpSendCommand.sendRegAddress = Sensor_Start_Register_Address;
+            tcpSendCommand.sendRegData = Sensor_Start_Register_Data;
+            tcpSendPacketRequestEventSlim.Set();
+            tcpSendPacketGrantEventSlim.Wait();
+            tcpSendPacketGrantEventSlim.Reset();
+
+            //----------------
+            // Sending Sensor_Calibration_Start_Register Command and waiting for feedback 
+            Sensor_Calibration_Start_Register_Data = 1;
+            tcpSendCommand.System_Command = LAN_Command_WriteToRegister;
+            tcpSendCommand.sendCommandHasAcknowledge = true;
+            tcpSendCommand.sendRegAddress = Sensor_Calibration_Start_Register_Address;
+            tcpSendCommand.sendRegData = Sensor_Calibration_Start_Register_Data;
+            tcpSendPacketRequestEventSlim.Set();
+            tcpSendPacketGrantEventSlim.Wait();
+            tcpSendPacketGrantEventSlim.Reset();
+
+            //----------------
+            //// Sending Sensor_Calibration_Start_Register Command and waiting for feedback 
+            //Sensor_Calibration_Start_Register_Data = 0;
+            //tcpSendCommand.System_Command = LAN_Command_ReadFromRegister;
+            //tcpSendCommand.sendCommandHasAcknowledge = true;
+            //tcpSendCommand.sendRegAddress = Sensor_Calibration_Start_Register_Address;
+            //tcpSendCommand.sendRegData = Sensor_Calibration_Start_Register_Data;
+            //tcpSendPacketRequestEventSlim.Set();
+            //tcpSendPacketGrantEventSlim.Wait();
+            //tcpSendPacketGrantEventSlim.Reset();
+
+            Thread.Sleep(300);
+
+            //----------------
+            // Reading Sensor_Calibration_Done_Register and waiting for Data                      
+            Sensor_Calibration_Done_Register_Data = 1;
+            tcpSendCommand.System_Command = LAN_Command_ReadFromRegister;
+            tcpSendCommand.sendCommandHasAcknowledge = true;
+            tcpSendCommand.sendRegAddress = Sensor_Calibration_Done_Register_Address;
+            tcpSendCommand.sendRegData = Sensor_Calibration_Done_Register_Data;
+            tcpSendPacketRequestEventSlim.Set();
+            tcpSendPacketGrantEventSlim.Wait();
+            tcpSendPacketGrantEventSlim.Reset();
+
+            //----------------
+            // Sending Sensor_Calibration_Done_Register Command and waiting for feedback 
+            Sensor_Calibration_Done_Register_Data = 0;
+            tcpSendCommand.System_Command = LAN_Command_WriteToRegister;
+            tcpSendCommand.sendCommandHasAcknowledge = true;
+            tcpSendCommand.sendRegAddress = Sensor_Calibration_Done_Register_Address;
+            tcpSendCommand.sendRegData = Sensor_Calibration_Done_Register_Data;
+            tcpSendPacketRequestEventSlim.Set();
+            tcpSendPacketGrantEventSlim.Wait();
+            tcpSendPacketGrantEventSlim.Reset();
+
+            //------------------
+            // Sending Sensor_Mode_Register_Data Command and waiting for feedback 
+            Sensor_Mode_Register_Data = 3; // Sensor None Mode selected
+            tcpSendCommand.System_Command = LAN_Command_WriteToRegister;
+            tcpSendCommand.sendCommandHasAcknowledge = false;
+            tcpSendCommand.sendRegAddress = Sensor_Mode_Register_Address;
+            tcpSendCommand.sendRegData = Sensor_Mode_Register_Data;
+            tcpSendPacketRequestEventSlim.Set();
+            tcpSendPacketGrantEventSlim.Wait();
+            tcpSendPacketGrantEventSlim.Reset();
+            Thread.Sleep(50);
+
+            //------------------
+            // Sending Sensor_Start_Register Command and waiting for feedback 
+            Sensor_Start_Register_Data = 0;
+            tcpSendCommand.System_Command = LAN_Command_WriteToRegister;
+            tcpSendCommand.sendCommandHasAcknowledge = false;
+            tcpSendCommand.sendRegAddress = Sensor_Start_Register_Address;
+            tcpSendCommand.sendRegData = Sensor_Start_Register_Data;
+            tcpSendPacketRequestEventSlim.Set();
+            tcpSendPacketGrantEventSlim.Wait();
+            tcpSendPacketGrantEventSlim.Reset();
+
+
+            SystemStatus = "Sensor Calibration Done!";
+            waitingStatus = 5;
+            systemStatusRequestEventSlim.Set();
+
+        }
+
+        //-------------------
+        public void SensorReset_TaskRunning()
+        {
+            // 1- Change Sensor_Mode to Configuration mode (Sensor_Mode_Register_Data = 2)
+            // 2- set Sensor_Start_register to 0 and waiting for feedback
+            // 3- set System_Start_Register to 1 and waiting for feedback
+            // 4- set Sensor_Start_register to 1 and waiting for feedback
+            // 5- Sensor_Reset_Start_Register = 1
+            // 6- Checking Sensor_Reset_Start_Register = 0
+            // 7- Checking Sensor_Reset_Done_Register = 1
+            // 8- Checking Sensor_Calibration_Done_Register = 1
+            // 9- Sensor_Calibration_Done_Register = 0
+            // 10- Change Sensor_Mode to None mode (Sensor_Mode_Register_Data = 3)
+
+            SystemStatus = "Sensor Resetting ...";
+            waitingStatus = 1;
+            systemStatusRequestEventSlim.Set();
+            Thread.Sleep(200);
+            waitingStatus = 4;
+            systemStatusRequestEventSlim.Set();
+
+
+            //// Sending Sensor_Reset_Start_Register Command and waiting for feedback 
+            Sensor_Reset_Start_Register_Data = 0;
+            tcpSendCommand.System_Command = LAN_Command_WriteToRegister;
+            tcpSendCommand.sendCommandHasAcknowledge = false;
+            tcpSendCommand.sendRegAddress = Sensor_Reset_Start_Register_Address;
+            tcpSendCommand.sendRegData = Sensor_Reset_Start_Register_Data;
+            tcpSendPacketRequestEventSlim.Set();
+            tcpSendPacketGrantEventSlim.Wait();
+            tcpSendPacketGrantEventSlim.Reset();
+            Thread.Sleep(100);
+
+            //------------------
+            // Sending Sensor_Mode_Register_Data Command and waiting for feedback 
+            Sensor_Mode_Register_Data = 2;
+            tcpSendCommand.System_Command = LAN_Command_WriteToRegister;
+            tcpSendCommand.sendCommandHasAcknowledge = false;
+            tcpSendCommand.sendRegAddress = Sensor_Mode_Register_Address;
+            tcpSendCommand.sendRegData = Sensor_Mode_Register_Data;
+            tcpSendPacketRequestEventSlim.Set();
+            tcpSendPacketGrantEventSlim.Wait();
+            tcpSendPacketGrantEventSlim.Reset();
+            Thread.Sleep(50);
+            //------------------
+            // Sending Sensor_Start_Register Command and waiting for feedback 
+            Sensor_Start_Register_Data = 0;
+            tcpSendCommand.System_Command = LAN_Command_WriteToRegister;
+            tcpSendCommand.sendCommandHasAcknowledge = false;
+            tcpSendCommand.sendRegAddress = Sensor_Start_Register_Address;
+            tcpSendCommand.sendRegData = Sensor_Start_Register_Data;
+            tcpSendPacketRequestEventSlim.Set();
+            tcpSendPacketGrantEventSlim.Wait();
+            tcpSendPacketGrantEventSlim.Reset();
+            Thread.Sleep(50);
+            //----------//--------
+            // Sending System_Start_Register Command and waiting for feedback 
+            System_Start_Register_Data = 0;
+            tcpSendCommand.System_Command = LAN_Command_WriteToRegister;
+            tcpSendCommand.sendCommandHasAcknowledge = false;
+            tcpSendCommand.sendRegAddress = System_Start_Register_Address;
+            tcpSendCommand.sendRegData = System_Start_Register_Data;
+            tcpSendPacketRequestEventSlim.Set();
+            tcpSendPacketGrantEventSlim.Wait();
+            tcpSendPacketGrantEventSlim.Reset();
+            Thread.Sleep(50);
+            // Reading System_Start_Register and waiting for Data                      
+            tcpSendCommand.sendCommandHasAcknowledge = true;
+            tcpSendCommand.System_Command = LAN_Command_ReadFromRegister;
+            tcpSendPacketRequestEventSlim.Set();
+            tcpSendPacketGrantEventSlim.Wait();
+            tcpSendPacketGrantEventSlim.Reset();
+            Thread.Sleep(50);
+            //----------//--------
+            // Sending System_Start_Register Command and waiting for feedback 
+            System_Start_Register_Data = 1;
+            tcpSendCommand.System_Command = LAN_Command_WriteToRegister;
+            tcpSendCommand.sendCommandHasAcknowledge = false;
+            tcpSendCommand.sendRegAddress = System_Start_Register_Address;
+            tcpSendCommand.sendRegData = System_Start_Register_Data;
+            tcpSendPacketRequestEventSlim.Set();
+            tcpSendPacketGrantEventSlim.Wait();
+            tcpSendPacketGrantEventSlim.Reset();
+            Thread.Sleep(50);
+            // Reading System_Start_Register and waiting for Data
+            tcpSendCommand.sendCommandHasAcknowledge = true;
+            tcpSendCommand.System_Command = LAN_Command_ReadFromRegister;
+            tcpSendPacketRequestEventSlim.Set();
+            tcpSendPacketGrantEventSlim.Wait();
+            tcpSendPacketGrantEventSlim.Reset();
+            Thread.Sleep(50);
+            //------------------
+            // Sending Sensor_Start_Register Command and waiting for feedback 
+            Sensor_Start_Register_Data = 1;
+            tcpSendCommand.System_Command = LAN_Command_WriteToRegister;
+            tcpSendCommand.sendCommandHasAcknowledge = false;
+            tcpSendCommand.sendRegAddress = Sensor_Start_Register_Address;
+            tcpSendCommand.sendRegData = Sensor_Start_Register_Data;
+            tcpSendPacketRequestEventSlim.Set();
+            tcpSendPacketGrantEventSlim.Wait();
+            tcpSendPacketGrantEventSlim.Reset();
+            Thread.Sleep(50);
+            //------------------------
+            //// Sending Sensor_Reset_Start_Register Command and waiting for feedback 
+            Sensor_Reset_Start_Register_Data = 1;
+            tcpSendCommand.System_Command = LAN_Command_WriteToRegister;
+            tcpSendCommand.sendCommandHasAcknowledge = false;
+            tcpSendCommand.sendRegAddress = Sensor_Reset_Start_Register_Address;
+            tcpSendCommand.sendRegData = Sensor_Reset_Start_Register_Data;
+            tcpSendPacketRequestEventSlim.Set();
+            tcpSendPacketGrantEventSlim.Wait();
+            tcpSendPacketGrantEventSlim.Reset();
+            Thread.Sleep(200);
+            //------------------------
+            ////// Sending Sensor_Reset_Start_Register Command and waiting for feedback 
+            //Sensor_Reset_Start_Register_Data = 0;
+            //tcpSendCommand.System_Command = LAN_Command_ReadFromRegister;
+            //tcpSendCommand.sendCommandHasAcknowledge = true;
+            //tcpSendCommand.sendRegAddress = Sensor_Reset_Start_Register_Address;
+            //tcpSendCommand.sendRegData = Sensor_Reset_Start_Register_Data;
+            //tcpSendPacketRequestEventSlim.Set();
+            //tcpSendPacketGrantEventSlim.Wait();
+            //tcpSendPacketGrantEventSlim.Reset();
+            //Thread.Sleep(100);
+            //------------------------
+            //// Sending Sensor_Reset_Done_Register Command and waiting for feedback 
+            Sensor_Reset_Done_Register_Data = 1;
+            tcpSendCommand.System_Command = LAN_Command_ReadFromRegister;
+            tcpSendCommand.sendCommandHasAcknowledge = true;
+            tcpSendCommand.sendRegAddress = Sensor_Reset_Done_Register_Address;
+            tcpSendCommand.sendRegData = Sensor_Reset_Done_Register_Data;
+            tcpSendPacketRequestEventSlim.Set();
+            tcpSendPacketGrantEventSlim.Wait();
+            tcpSendPacketGrantEventSlim.Reset();
+            Thread.Sleep(100);
+
+            ////------------
+            // Sending Sensor_Calibration_Done_Register Command and waiting for feedback 
+            Sensor_Calibration_Done_Register_Data = 1;
+            tcpSendCommand.System_Command = LAN_Command_ReadFromRegister;
+            tcpSendCommand.sendCommandHasAcknowledge = true;
+            tcpSendCommand.sendRegAddress = Sensor_Calibration_Done_Register_Address;
+            tcpSendCommand.sendRegData = Sensor_Calibration_Done_Register_Data;
+            tcpSendPacketRequestEventSlim.Set();
+            tcpSendPacketGrantEventSlim.Wait();
+            tcpSendPacketGrantEventSlim.Reset();
+            Thread.Sleep(100);
+
+            //// Sending Sensor_Calibration_Done_Register Command and waiting for feedback 
+            Sensor_Calibration_Done_Register_Data = 0;
+            tcpSendCommand.System_Command = LAN_Command_WriteToRegister;
+            tcpSendCommand.sendCommandHasAcknowledge = false;
+            tcpSendCommand.sendRegAddress = Sensor_Calibration_Done_Register_Address;
+            tcpSendCommand.sendRegData = Sensor_Calibration_Done_Register_Data;
+            tcpSendPacketRequestEventSlim.Set();
+            tcpSendPacketGrantEventSlim.Wait();
+            tcpSendPacketGrantEventSlim.Reset();
+            Thread.Sleep(100);
+
+            //------------------
+            // Sending Sensor_Mode_Register_Data Command and waiting for feedback 
+            Sensor_Mode_Register_Data = 3;
+            tcpSendCommand.System_Command = LAN_Command_WriteToRegister;
+            tcpSendCommand.sendCommandHasAcknowledge = false;
+            tcpSendCommand.sendRegAddress = Sensor_Mode_Register_Address;
+            tcpSendCommand.sendRegData = Sensor_Mode_Register_Data;
+            tcpSendPacketRequestEventSlim.Set();
+            tcpSendPacketGrantEventSlim.Wait();
+            tcpSendPacketGrantEventSlim.Reset();
+            Thread.Sleep(50);
+
+            SystemStatus = "Sensor Resetting Done!";
+            waitingStatus = 5;
+            systemStatusRequestEventSlim.Set();
+        }
+
+        //-------------------
+        public void SystemReset_TaskRunning()
+        {
+            // 1- System_Reset_Register = 1
+            // 2- waiting for 300 ms
+            // 3- System_Reset_Register = 0
+            // 4- Checking System_Reset_Register = 0
+
+            SystemStatus = "System Resetting ...";
+            waitingStatus = 1;
+            systemStatusRequestEventSlim.Set();
+            Thread.Sleep(200);
+            waitingStatus = 6;
+            systemStatusRequestEventSlim.Set();
+
+            //------------------------
+            //// Sending System_Reset_Start Command and waiting for feedback 
+            System_Reset_Register_Data = 1;
+            tcpSendCommand.System_Command = LAN_Command_WriteToRegister;
+            tcpSendCommand.sendCommandHasAcknowledge = true;
+            tcpSendCommand.sendRegAddress = System_Reset_Register_Address;
+            tcpSendCommand.sendRegData = System_Reset_Register_Data;
+            tcpSendPacketRequestEventSlim.Set();
+            tcpSendPacketGrantEventSlim.Wait();
+            tcpSendPacketGrantEventSlim.Reset();
+            Thread.Sleep(300);
+            ////------------
+            //// Sending System_Reset_Stop Command and waiting for feedback 
+            System_Reset_Register_Data = 0;
+            tcpSendCommand.System_Command = LAN_Command_WriteToRegister;
+            tcpSendCommand.sendCommandHasAcknowledge = true;
+            tcpSendCommand.sendRegAddress = System_Reset_Register_Address;
+            tcpSendCommand.sendRegData = System_Reset_Register_Data;
+            tcpSendPacketRequestEventSlim.Set();
+            tcpSendPacketGrantEventSlim.Wait();
+            tcpSendPacketGrantEventSlim.Reset();
+            Thread.Sleep(300);
+            // Sending System_Reset_Stop Command and waiting for feedback 
+            System_Reset_Register_Data = 0;
+            tcpSendCommand.System_Command = LAN_Command_ReadFromRegister;
+            tcpSendCommand.sendCommandHasAcknowledge = true;
+            tcpSendCommand.sendRegAddress = System_Reset_Register_Address;
+            tcpSendCommand.sendRegData = System_Reset_Register_Data;
+            tcpSendPacketRequestEventSlim.Set();
+            tcpSendPacketGrantEventSlim.Wait();
+            tcpSendPacketGrantEventSlim.Reset();
+            Thread.Sleep(100);
+
+            SystemStatus = "System Resetting Done!";
+            waitingStatus = 5;
+            systemStatusRequestEventSlim.Set();
+
+        }
+
+        //-------------------
+        public void SensorCapturingStart_TaskRunning()
+        {
+            //----------//--------
+            // Sending Sensor_Capturing_Start_Register Command and waiting for feedback 
+            Sensor_Capturing_Start_Register_Data = 1;
+            tcpSendCommand.System_Command = LAN_Command_WriteToRegister;
+            tcpSendCommand.sendCommandHasAcknowledge = false;
+            tcpSendCommand.sendRegAddress = Sensor_Capturing_Start_Register_Address;
+            tcpSendCommand.sendRegData = Sensor_Capturing_Start_Register_Data;
+            tcpSendPacketRequestEventSlim.Set();
+            tcpSendPacketGrantEventSlim.Wait();
+            tcpSendPacketGrantEventSlim.Reset();
+        }
+
+        //-------------------
+        public void SensorCapturingStop_TaskRunning()
+        {
+            //----------//--------
+            // Sending Sensor_Capturing_Start_Register Command and waiting for feedback
+            Sensor_Start_Register_Data = 0;
+
+            tcpSendCommand.sendRegAddress = Sensor_Start_Register_Address;
+            tcpSendCommand.sendRegData = Sensor_Start_Register_Data;
+            tcpSendCommand.sendCommandHasAcknowledge = false;
+            tcpSendCommand.System_Command = LAN_Command_WriteToRegister;
+
+            tcpSendPacketRequestEventSlim.Set();
+            tcpSendPacketGrantEventSlim.Wait();
+            tcpSendPacketGrantEventSlim.Reset();
+
+            taskyeildEventSlim.Wait();
+            taskyeildEventSlim.Reset();
+
+            SensorCapturingStopTaskYeildEventSlim.Set();
+        }
+
+        //-------------------
+        public void Pattern_TaskRunning()
+        {
+            // Sensor Pattern Mode 
+            // 1- Reset the system except Hardware Sensor (send System_Reset_Start and System_Reset_Stop to Board and waits for feedbacks)
+            // 2- set All Control Register and wait for feedbacks
+            // 3- set System_Start_Register to 1 and waiting for feedback
+            // 4- set Sensor_Start_register to 1 and waiting for feedback
+            // 5- receive all Packet_Data form LAN and convert to Pixel_Array
+            // 6- in High speed Mode after all frame received, set Sensor_Stop_register to 1 and send it to FPGA Board and waiting for feedback and go to step 9
+            // 7- in Live Mode if user lcikc the System_stop button, set Sensor_Stop_register to 1 and send it to FPGA Board and waiting for feedback and go to step 9
+            // 8- Close the task and LAN Socket
+
+            waitingStatus = 1;
+            systemStatusRequestEventSlim.Set();
+            //systemStatusGrantEventSlim.Wait();
+            //systemStatusGrantEventSlim.Reset();
+            //SystemStatus = "Command1 Started!";
+            Thread.Sleep(100);
+            waitingStatus = 7;
+            systemStatusRequestEventSlim.Set();
+            //systemStatusGrantEventSlim.Wait();
+            //systemStatusGrantEventSlim.Reset();
+
+            if (Sensor_Mode_Register_Data == 0)
+            {
+                SystemStatus = "High Speed Capturing Start!";
+            }
+            else if (Sensor_Mode_Register_Data == 1)
+            {
+                SystemStatus = "Live Capturing Start!";
+            }
+
+            patternTask_Stop = false;
+            dataReceivedAndReady = false;
+            receivedPacketAnalyzerStopping = false;
+            taskyeildEventSlim.Reset();
+            receiveDataEventslim.Reset();
+            dataReceivedAndReadyEventSlim.Reset();
+            systemContinueToReceivingPacketEventSlim.Reset();
+            systemCapturingFinishedEventSlim.Reset();
+            systemProcessExitEventSlim.Reset();
+
+            tcpSendPacketRequestEventSlim.Reset();
+            tcpSendPacketGrantEventSlim.Reset();
+
+            sensorReceivedDataIndex = 0;
+            //Array.Fill<ushort>(sensorRawDataArray, 0);
+            //Array.Fill<byte>(_receivedPacketData[0], 0);
+            //Array.Fill<byte>(_receivedPacketData[1], 0);
+            Array.Clear(sensorRawDataArray);
+            Array.Clear(_receivedPacketData[0]);
+            Array.Clear(_receivedPacketData[1]);
+
+            _writeIndex = 0;
+
+            sensorFramePacketCount = (Sensor_Row_End_Register_Data - Sensor_Row_Start_Register_Data + 1) * 2;
+
+            ////------ Sensor Register Data ------
+            //Sensor_Row_Start_Register_Data = 1;
+
+            sensorhighSpeedModeReceivedFrameCounter = 0;
+            receivedPacketCount = 0;
+
+            //using (sendTcpClient = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp))
+            ////using (sendTcpClient = new TcpClient(FIC3_Board_IPAddress, lanPort))
+            //{
+            //    try
+            //    {
+            //        sendTcpClient.ReceiveBufferSize = 1000*LAN_Packet_size;
+            //        sendTcpClient.SendBufferSize =  LAN_Packet_size;
+            //        //sendTcpClient.Blocking = true;
+            //        sendTcpClient.ExclusiveAddressUse = true;
+            //        //sendTcpClient.DontFragment = true; // for UDP Datagram
+            //        sendTcpClient.NoDelay = false; // in TCP mode using the Nagle algorithm.
+            //        ////receivedPacketAnalyzerStopping = false;
+            //        //NetworkStream networkStream = sendTcpClient.GetStream();
+
+            //        if (!sendTcpClient.Connected)
+            //        {
+            //            sendTcpClient.Connect(FIC3_Board_IPAddress, lanPort);
+            //            Thread.Sleep(100);
+            //        }
+            //        //sendTcpClient.Connect(hostIPAddress, lanPort);
+            //          Thread.Sleep(100);
+            //        if (sendTcpClient.Connected)
+            //        {
+            Thread.Sleep(100);
+            while (true)
+            {
+                if (sendTcpClient.Available >= LAN_Packet_size)
+                {
+                    sendTcpClient.Receive(_receivedPacketData[_writeIndex], 0, LAN_Packet_size, SocketFlags.None);
+                    //networkStream.Read(_receivedPacketData[_writeIndex], 0, LAN_Packet_size);
+                    //sendTcpClient.BeginReceive(_receivedPacketData[_writeIndex], 0, LAN_Packet_size, SocketFlags.None, new AsyncCallback(ReceiveData), sendTcpClient);
+                    //receiveDataEventslim.Wait();
+                    //receiveDataEventslim.Reset();
+                }
+                else if ((sendTcpClient.Available < LAN_Packet_size) && (sendTcpClient.Available != 0))
+                {
+                    sendTcpClient.Receive(_receivedPacketData[_writeIndex], 0, sendTcpClient.Available, SocketFlags.None);
+                    //networkStream.Read(_receivedPacketData[_writeIndex], 0, LAN_Packet_size);
+                    //sendTcpClient.BeginReceive(_receivedPacketData[_writeIndex], 0, sendTcpClient.Available, SocketFlags.None, new AsyncCallback(ReceiveData), sendTcpClient);
+                    //receiveDataEventslim.Wait();
+                    //receiveDataEventslim.Reset();
+                }
+                else
+                {
+                    break;
+                }
+            }
+            Task.Factory.StartNew(System_Packet_Proccess);
+
+            //------------
+            // Sending Sensor_CapturingMode_Register Command and waiting for feedback 
+            tcpSendCommand.System_Command = LAN_Command_WriteToRegister;
+            tcpSendCommand.sendCommandHasAcknowledge = true;
+            tcpSendCommand.sendRegAddress = Sensor_Mode_Register_Address;
+            tcpSendCommand.sendRegData = Sensor_Mode_Register_Data;
+            tcpSendPacketRequestEventSlim.Set();
+            tcpSendPacketGrantEventSlim.Wait();
+            tcpSendPacketGrantEventSlim.Reset();
+            // Reading Sensor_CapturingMode_Register and waiting for Data                      
+            tcpSendCommand.System_Command = LAN_Command_ReadFromRegister;
+            tcpSendPacketRequestEventSlim.Set();
+            tcpSendPacketGrantEventSlim.Wait();
+            tcpSendPacketGrantEventSlim.Reset();
+
+            ////------------------------
+            //// Sending System_Start_Register Command and waiting for feedback  (Stop the system)
+            //System_Start_Register_Data = 0;
+            //tcpSendCommand.System_Command = LAN_Command_WriteToRegister;
+            //tcpSendCommand.sendCommandHasAcknowledge = true;
+            //tcpSendCommand.sendRegAddress = System_Start_Register_Address;
+            //tcpSendCommand.sendRegData = System_Start_Register_Data;
+            //tcpSendPacketRequestEventSlim.Set();
+            //tcpSendPacketGrantEventSlim.Wait();
+            //tcpSendPacketGrantEventSlim.Reset();
+            //// Reading System_Start_Register and waiting for Data                      
+            //tcpSendCommand.System_Command = LAN_Command_ReadFromRegister;
+            //tcpSendPacketRequestEventSlim.Set();
+            //tcpSendPacketGrantEventSlim.Wait();
+            //tcpSendPacketGrantEventSlim.Reset();
+            //Thread.Sleep(100);
+
+            //------------------------
+            //// Sending System_Reset_Start Command and waiting for feedback 
+            System_Reset_Register_Data = 1;
+            tcpSendCommand.System_Command = LAN_Command_WriteToRegister;
+            tcpSendCommand.sendCommandHasAcknowledge = true;
+            tcpSendCommand.sendRegAddress = System_Reset_Register_Address;
+            tcpSendCommand.sendRegData = System_Reset_Register_Data;
+            tcpSendPacketRequestEventSlim.Set();
+            tcpSendPacketGrantEventSlim.Wait();
+            tcpSendPacketGrantEventSlim.Reset();
+            Thread.Sleep(100);
+            //------------
+            //// Sending System_Reset_Stop Command and waiting for feedback 
+            System_Reset_Register_Data = 0;
+            tcpSendCommand.System_Command = LAN_Command_WriteToRegister;
+            tcpSendCommand.sendCommandHasAcknowledge = true;
+            tcpSendCommand.sendRegAddress = System_Reset_Register_Address;
+            tcpSendCommand.sendRegData = System_Reset_Register_Data;
+            tcpSendPacketRequestEventSlim.Set();
+            tcpSendPacketGrantEventSlim.Wait();
+            tcpSendPacketGrantEventSlim.Reset();
+            Thread.Sleep(100);
+            // Sending System_Reset_Stop Command and waiting for feedback 
+            System_Reset_Register_Data = 0;
+            tcpSendCommand.System_Command = LAN_Command_ReadFromRegister;
+            tcpSendCommand.sendCommandHasAcknowledge = true;
+            tcpSendCommand.sendRegAddress = System_Reset_Register_Address;
+            tcpSendCommand.sendRegData = System_Reset_Register_Data;
+            tcpSendPacketRequestEventSlim.Set();
+            tcpSendPacketGrantEventSlim.Wait();
+            tcpSendPacketGrantEventSlim.Reset();
+            Thread.Sleep(100);
+
+            //------------------
+            // Sending Sensor_Pattern_Register Command and waiting for feedback 
+            tcpSendCommand.System_Command = LAN_Command_WriteToRegister;
+            tcpSendCommand.sendCommandHasAcknowledge = true;
+            tcpSendCommand.sendRegAddress = Sensor_Pattern_Register_Address;
+            tcpSendCommand.sendRegData = Sensor_Pattern_Register_Data;
+            tcpSendPacketRequestEventSlim.Set();
+            tcpSendPacketGrantEventSlim.Wait();
+            tcpSendPacketGrantEventSlim.Reset();
+            // Reading Sensor_Pattern_Register and waiting for Data                      
+            tcpSendCommand.System_Command = LAN_Command_ReadFromRegister;
+            tcpSendPacketRequestEventSlim.Set();
+            tcpSendPacketGrantEventSlim.Wait();
+            tcpSendPacketGrantEventSlim.Reset();
+            //------------------
+            // Sending Sensor_Row_Start_Register Command and waiting for feedback 
+            tcpSendCommand.System_Command = LAN_Command_WriteToRegister;
+            tcpSendCommand.sendCommandHasAcknowledge = true;
+            tcpSendCommand.sendRegAddress = Sensor_Row_Start_Register_Address;
+            tcpSendCommand.sendRegData = Sensor_Row_Start_Register_Data;
+            tcpSendPacketRequestEventSlim.Set();
+            tcpSendPacketGrantEventSlim.Wait();
+            tcpSendPacketGrantEventSlim.Reset();
+            // Reading Sensor_Row_Start_Register and waiting for Data                      
+            tcpSendCommand.System_Command = LAN_Command_ReadFromRegister;
+            tcpSendPacketRequestEventSlim.Set();
+            tcpSendPacketGrantEventSlim.Wait();
+            tcpSendPacketGrantEventSlim.Reset();
+            //------------------
+            // Sending Sensor_Row_End_Register Command and waiting for feedback 
+            tcpSendCommand.System_Command = LAN_Command_WriteToRegister;
+            tcpSendCommand.sendCommandHasAcknowledge = true;
+            tcpSendCommand.sendRegAddress = Sensor_Row_End_Register_Address;
+            tcpSendCommand.sendRegData = Sensor_Row_End_Register_Data;
+            tcpSendPacketRequestEventSlim.Set();
+            tcpSendPacketGrantEventSlim.Wait();
+            tcpSendPacketGrantEventSlim.Reset();
+            // Reading Sensor_Row_End_Register and waiting for Data                      
+            tcpSendCommand.System_Command = LAN_Command_ReadFromRegister;
+            tcpSendPacketRequestEventSlim.Set();
+            tcpSendPacketGrantEventSlim.Wait();
+            tcpSendPacketGrantEventSlim.Reset();
+            //------------------
+            // Sending Sensor_HighSpeed_Frame_Count_Register Command and waiting for feedback 
+            tcpSendCommand.System_Command = LAN_Command_WriteToRegister;
+            tcpSendCommand.sendCommandHasAcknowledge = true;
+            tcpSendCommand.sendRegAddress = Sensor_HighSpeed_Frame_Count_Register_Address;
+            tcpSendCommand.sendRegData = Sensor_HighSpeed_Frame_Count_Register_Data;
+            tcpSendPacketRequestEventSlim.Set();
+            tcpSendPacketGrantEventSlim.Wait();
+            tcpSendPacketGrantEventSlim.Reset();
+            // Reading Sensor_HighSpeed_Frame_Count_Register and waiting for Data                      
+            tcpSendCommand.System_Command = LAN_Command_ReadFromRegister;
+            tcpSendPacketRequestEventSlim.Set();
+            tcpSendPacketGrantEventSlim.Wait();
+            tcpSendPacketGrantEventSlim.Reset();
+            //------------------
+            // Sending Sensor_Free_Running_Counter_Step_Value_Register Command and waiting for feedback 
+            tcpSendCommand.System_Command = LAN_Command_WriteToRegister;
+            tcpSendCommand.sendCommandHasAcknowledge = true;
+            tcpSendCommand.sendRegAddress = Sensor_Free_Running_Counter_Step_Value_Register_Address;
+            tcpSendCommand.sendRegData = Sensor_Free_Running_Counter_Step_Value_Register_Data;
+            tcpSendPacketRequestEventSlim.Set();
+            tcpSendPacketGrantEventSlim.Wait();
+            tcpSendPacketGrantEventSlim.Reset();
+            // Reading Sensor_Free_Running_Counter_Step_Value_Register and waiting for Data                      
+            tcpSendCommand.System_Command = LAN_Command_ReadFromRegister;
+            tcpSendPacketRequestEventSlim.Set();
+            tcpSendPacketGrantEventSlim.Wait();
+            tcpSendPacketGrantEventSlim.Reset();
+            //------------------
+            // Sending Sensor_Exposure_Time_Register Command and waiting for feedback 
+            tcpSendCommand.System_Command = LAN_Command_WriteToRegister;
+            tcpSendCommand.sendCommandHasAcknowledge = true;
+            tcpSendCommand.sendRegAddress = Sensor_Exposure_Time_Register_Address;
+            tcpSendCommand.sendRegData = Sensor_Exposure_Time_Register_Data;
+            tcpSendPacketRequestEventSlim.Set();
+            tcpSendPacketGrantEventSlim.Wait();
+            tcpSendPacketGrantEventSlim.Reset();
+            // Reading Sensor_Exposure_Time_Register and waiting for Data                      
+            tcpSendCommand.System_Command = LAN_Command_ReadFromRegister;
+            tcpSendPacketRequestEventSlim.Set();
+            tcpSendPacketGrantEventSlim.Wait();
+            tcpSendPacketGrantEventSlim.Reset();
+            //------------------
+            // Sending System_Start_Register Command and waiting for feedback 
+            System_Start_Register_Data = 1;
+            tcpSendCommand.System_Command = LAN_Command_WriteToRegister;
+            tcpSendCommand.sendCommandHasAcknowledge = true;
+            tcpSendCommand.sendRegAddress = System_Start_Register_Address;
+            tcpSendCommand.sendRegData = System_Start_Register_Data;
+            tcpSendPacketRequestEventSlim.Set();
+            tcpSendPacketGrantEventSlim.Wait();
+            tcpSendPacketGrantEventSlim.Reset();
+            // Reading System_Start_Register and waiting for Data                      
+            tcpSendCommand.System_Command = LAN_Command_ReadFromRegister;
+            tcpSendPacketRequestEventSlim.Set();
+            tcpSendPacketGrantEventSlim.Wait();
+            tcpSendPacketGrantEventSlim.Reset();
+            //------------------
+            // Sending Sensor_Start_Register Command and waiting for feedback 
+            Sensor_Start_Register_Data = 1;
+            tcpSendCommand.System_Command = LAN_Command_WriteToRegister;
+            tcpSendCommand.sendCommandHasAcknowledge = false;
+            tcpSendCommand.sendRegAddress = Sensor_Start_Register_Address;
+            tcpSendCommand.sendRegData = Sensor_Start_Register_Data;
+            tcpSendPacketRequestEventSlim.Set();
+            tcpSendPacketGrantEventSlim.Wait();
+            tcpSendPacketGrantEventSlim.Reset();
+
+            Thread.Sleep(100);
+            waitingStatus = 8;
+            systemStatusRequestEventSlim.Set();
+
+            while (sendTcpClient.Available < LAN_Packet_size) ;
+            Thread.Sleep(100);
+            dispatcherTimer.Start();
+            //while (System_Start_Register_Data == 1)
+            while (true)
+            {
+                if (_LanConnected)
+                {
+                    if (sendTcpClient.Available >= LAN_Packet_size)
+                    {
+                        //networkStream.Read(_receivedPacketData[_writeIndex], 0, LAN_Packet_size);
+                        sendTcpClient.Receive(_receivedPacketData[_writeIndex], 0, LAN_Packet_size, SocketFlags.None);
+                        //sendTcpClient.BeginReceive(_receivedPacketData[_writeIndex], 0, LAN_Packet_size, SocketFlags.None, new AsyncCallback(ReceiveData), sendTcpClient);
+                        //receiveDataEventslim.Wait();
+                        //receiveDataEventslim.Reset();
+                        dataReceivedAndReady = true;
+                        dataReceivedAndReadyEventSlim.Set();
+                        //captureReceivedData(_receivedPacketData[_writeIndex]);
+                        //_systemContinuetoReceivingPacket = true;
+                        //systemContinueToReceivingPacketEventSlim.Set();
+                        //if (receivedPacketCount == sensorFramePacketCount)
+                        //{
+                        //    receivedPacketCount = 0;
+                        //    sensorReceivedDataIndex = 0;
+                        //    showFrameDataRequestEventSlim.Set();
+                        //    showFrameDataGrantEventSlim.Wait();
+                        //    showFrameDataGrantEventSlim.Reset();
+                        //}
+                    }
+                    else
+                    {
+                        continue;
+                    }
+                    systemContinueToReceivingPacketEventSlim.Wait();
+                    systemContinueToReceivingPacketEventSlim.Reset();
+
+                    if (!_systemContinuetoReceivingPacket)
+                    {
+                        //systemCapturingFinishedEventSlim.Wait();
+                        //systemCapturingFinishedEventSlim.Reset();
+                        Thread.Sleep(400);
+                        while (true)
+                        {
+                            if (sendTcpClient.Available >= LAN_Packet_size)
+                            {
+                                sendTcpClient.Receive(_receivedPacketData[_writeIndex], 0, LAN_Packet_size, SocketFlags.None);
+                                //networkStream.Read(_receivedPacketData[_writeIndex], 0, LAN_Packet_size);
+                                //sendTcpClient.BeginReceive(_receivedPacketData[_writeIndex], 0, LAN_Packet_size, SocketFlags.None, new AsyncCallback(ReceiveData), sendTcpClient);
+                                //receiveDataEventslim.Wait();
+                                //receiveDataEventslim.Reset();
+                            }
+                            else if ((sendTcpClient.Available < LAN_Packet_size) && (sendTcpClient.Available != 0))
+                            {
+                                sendTcpClient.Receive(_receivedPacketData[_writeIndex], 0, sendTcpClient.Available, SocketFlags.None);
+                                //networkStream.Read(_receivedPacketData[_writeIndex], 0, LAN_Packet_size);
+                                //sendTcpClient.BeginReceive(_receivedPacketData[_writeIndex], 0, sendTcpClient.Available, SocketFlags.None, new AsyncCallback(ReceiveData), sendTcpClient);
+                                //receiveDataEventslim.Wait();
+                                //receiveDataEventslim.Reset();
+                            }
+                            else
+                            {
+                                break;
+                            }
+                        }
+                        break;
+                    }
+                }
+                else
+                {
+                    break;
+                }
+            } // End of while
+
+            dispatcherTimer.Stop();
+
+            dataReceivedAndReady = false;
+            dataReceivedAndReadyEventSlim.Set();
+            systemProcessExitEventSlim.Wait();
+            systemProcessExitEventSlim.Reset();
+
+            if (_LanConnected)
+            {
+                ////------------
+                //// Sending Sensor_CapturingMode_Register Command and waiting for feedback 
+                //Sensor_Mode_Register_Data = 3; // Sensor None Mode Selected
+                //tcpSendCommand.System_Command = LAN_Command_WriteToRegister;
+                //tcpSendCommand.sendCommandHasAcknowledge = false;
+                //tcpSendCommand.sendRegAddress = Sensor_Mode_Register_Address;
+                //tcpSendCommand.sendRegData = Sensor_Mode_Register_Data;
+                //tcpSendPacketRequestEventSlim.Set();
+                //tcpSendPacketGrantEventSlim.Wait();
+                //tcpSendPacketGrantEventSlim.Reset();
+
+                // Sending System_Start_Register Command and waiting for feedback  (Stop the system)
+                System_Start_Register_Data = 0;
+                tcpSendCommand.System_Command = LAN_Command_WriteToRegister;
+                tcpSendCommand.sendCommandHasAcknowledge = false;
+                tcpSendCommand.sendRegAddress = System_Start_Register_Address;
+                tcpSendCommand.sendRegData = System_Start_Register_Data;
+                tcpSendPacketRequestEventSlim.Set();
+                tcpSendPacketGrantEventSlim.Wait();
+                tcpSendPacketGrantEventSlim.Reset();
+                // Reading System_Start_Register and waiting for Data                      
+                tcpSendCommand.System_Command = LAN_Command_ReadFromRegister;
+                tcpSendPacketRequestEventSlim.Set();
+                tcpSendPacketGrantEventSlim.Wait();
+                tcpSendPacketGrantEventSlim.Reset();
+
+                //////------------------
+                ////// Sending Sensor_Start_Register Command and waiting for feedback 
+                ////Sensor_Start_Register_Data = 0;
+                ////tcpSendCommand.System_Command = LAN_Command_WriteToRegister;
+                ////tcpSendCommand.sendCommandHasAcknowledge = false;
+                ////tcpSendCommand.sendRegAddress = Sensor_Start_Register_Address;
+                ////tcpSendCommand.sendRegData = Sensor_Start_Register_Data;
+                ////tcpSendPacketRequestEventSlim.Set();
+                ////tcpSendPacketGrantEventSlim.Wait();
+                ////tcpSendPacketGrantEventSlim.Reset();
+
+                Thread.Sleep(400);
+                while (true)
+                {
+                    if (sendTcpClient.Available >= LAN_Packet_size)
+                    {
+                        sendTcpClient.Receive(_receivedPacketData[_writeIndex], 0, LAN_Packet_size, SocketFlags.None);
+                        //networkStream.Read(_receivedPacketData[_writeIndex], 0, LAN_Packet_size);
+                        //sendTcpClient.BeginReceive(_receivedPacketData[_writeIndex], 0, LAN_Packet_size, SocketFlags.None, new AsyncCallback(ReceiveData), sendTcpClient);
+                        //receiveDataEventslim.Wait();
+                        //receiveDataEventslim.Reset();
+                    }
+                    else if ((sendTcpClient.Available < LAN_Packet_size) && (sendTcpClient.Available != 0))
+                    {
+                        sendTcpClient.Receive(_receivedPacketData[_writeIndex], 0, sendTcpClient.Available, SocketFlags.None);
+                        //networkStream.Read(_receivedPacketData[_writeIndex], 0, LAN_Packet_size);
+                        //sendTcpClient.BeginReceive(_receivedPacketData[_writeIndex], 0, sendTcpClient.Available, SocketFlags.None, new AsyncCallback(ReceiveData), sendTcpClient);
+                        //receiveDataEventslim.Wait();
+                        //receiveDataEventslim.Reset();
+                    }
+                    else
+                    {
+                        break;
+                    }
+                }
+
+                if (Sensor_Mode_Register_Data == 0)
+                {
+                    SystemStatus = "High Speed Capturing Done!";
+                }
+                else if (Sensor_Mode_Register_Data == 1)
+                {
+                    SystemStatus = "Live Capturing Done!";
+                }
+
+                //waitingStatus = 2;
+                //systemStatusRequestEventSlim.Set();
+                //systemStatusGrantEventSlim.Wait();
+                //systemStatusGrantEventSlim.Reset();
+                //Thread.Sleep(300);
+                waitingStatus = 5;
+                systemStatusRequestEventSlim.Set();
+                //systemStatusGrantEventSlim.Wait();
+                //systemStatusGrantEventSlim.Reset();
+            }
+
+            Thread.Sleep(300);
+            dataReceivedAndReady = false;
+            _systemContinuetoReceivingPacket = false;
+
+            dataReceivedAndReadyEventSlim.Reset();
+            systemContinueToReceivingPacketEventSlim.Reset();
+            systemProcessExitEventSlim.Reset();
+
+            _writeIndex = 0;
+            _readIndex = 0;
+            receivedPacketCount = 0;
+            sensorReceivedFrameCounter = 0;
+            sensorhighSpeedModeReceivedFrameCounter = 0;
+
+            taskyeildEventSlim.Set();
+            GC.Collect(0, GCCollectionMode.Forced);
+            //Thread.Yield();
+
+            //}
+            //else
+            //{
+            //    dataReceivedAndReady = false;
+            //    receivedPacketAnalyzerStopping = true;
+            //    dataReceivedAndReadyEventSlim.Set();
+            //    SystemStatus = "can not connect to host, please check IP address and Port number or reprogram the FPGA!";
+            //    waitingStatus = 2;
+            //    systemStatusRequestEventSlim.Set();
+            //    Thread.Sleep(100);
+            //}
+            //sendTcpClient.Close();
+            //sendTcpClient.Dispose();
+
+            //}
+            //                catch (Exception e)
+            //{
+            //    MessageBox.Show(e.ToString());
+            //}
+            //sendTcpClient.Close();
+            //            }//end using 
+
+        }
+
+        //----------------
+        private bool LanCheckingStopPacket()
+        {
+            bool result = false;
+            if (Encoding.ASCII.GetString(_receivedPacketData[_readIndex], 0, 8) == BoardName)
+            {
+                if (BitConverter.ToUInt16(_receivedPacketData[_readIndex], 8) == LAN_Command_ReadFromMemoryAcknowledge)
+                {
+                    result = true;
+                }
+            }
+            return result;
+        }
+
+        //-------------------------
+        private void System_Packet_Proccess()
+        {
+            try
+            {
+                while (true)
+                {
+                    dataReceivedAndReadyEventSlim.Wait();
+                    dataReceivedAndReadyEventSlim.Reset();
+                    if (dataReceivedAndReady)
+                    {
+                        _readIndex = _writeIndex;
+                        if (!LanCheckingStopPacket())  // Stop Packet
+                        {
+                            _writeIndex++;
+                            if (_writeIndex > 1)
+                            {
+                                _writeIndex = 0;
+                            }
+                            _systemContinuetoReceivingPacket = true;
+                            systemContinueToReceivingPacketEventSlim.Set();
+                            //systemCapturingFinishedEventSlim.Set();
+
+                            captureReceivedData(_receivedPacketData[_readIndex]);
+                            if (receivedPacketCount == sensorFramePacketCount) // One Sensor Frame Received
+                            {
+                                receivedPacketCount = 0;
+                                sensorReceivedDataIndex = 0;
+                                sensorReceivedFrameCounter++;
+                                sensorhighSpeedModeReceivedFrameCounter++;
+                                HighSpeedModeReceivedFrames = sensorhighSpeedModeReceivedFrameCounter.ToString();
+                                //if (Sensor_Mode_Register_Data == 0) // High Speed Mode
+                                //{                                    
+                                //    _systemContinuetoReceivingPacket = false;
+                                //}
+                                //else  // Live Mode
+                                //{
+                                //    _systemContinuetoReceivingPacket = true;
+                                //}
+                                showFrameDataRequestEventSlim.Set();
+                                showFrameDataGrantEventSlim.Wait();
+                                showFrameDataGrantEventSlim.Reset();
+                            }
+
+                            //else 
+                            //{
+                            //    _writeIndex++;
+                            //    if (_writeIndex > 1)
+                            //    {
+                            //        _writeIndex = 0;
+                            //    }
+                            //    _systemContinuetoReceivingPacket = true;
+                            //    systemContinueToReceivingPacketEventSlim.Set();
+                            //    showFrameDataRequestEventSlim.Wait();
+                            //    showFrameDataGrantEventSlim.Set();
+                            //}
+                        }
+                        else
+                        {
+                            _systemContinuetoReceivingPacket = false;
+                            systemContinueToReceivingPacketEventSlim.Set();
+                            //systemCapturingFinishedEventSlim.Set();
+                        }
+                    }
+                    else
+                    {
+                        systemProcessExitEventSlim.Set();
+                        Thread.Sleep(50);
+                        break;
+                    }
+                }// end of while
+                //Thread.Yield();
+            }
+            catch (Exception)
+            {
+                throw;
+            }
+        }
+
+        public void LanResettingAndDisconnecting_TaskRunning()
+        {
+            if (_LanConnected)
+            {
+                // Sending System_Start_Register Command and waiting for feedback  (Stop the system)
+                System_Start_Register_Data = 0;
+                tcpSendCommand.System_Command = LAN_Command_WriteToRegister;
+                tcpSendCommand.sendCommandHasAcknowledge = false;
+                tcpSendCommand.sendRegAddress = System_Start_Register_Address;
+                tcpSendCommand.sendRegData = System_Start_Register_Data;
+                tcpSendPacketRequestEventSlim.Set();
+                tcpSendPacketGrantEventSlim.Wait();
+                tcpSendPacketGrantEventSlim.Reset();
+                // Reading System_Start_Register and waiting for Data                      
+                tcpSendCommand.System_Command = LAN_Command_ReadFromRegister;
+                tcpSendPacketRequestEventSlim.Set();
+                tcpSendPacketGrantEventSlim.Wait();
+                tcpSendPacketGrantEventSlim.Reset();
+
+
+                // Sending System_Reset_Register Command and waiting for feedback  (Reset the system)
+                System_Start_Register_Data = 0;
+                tcpSendCommand.System_Command = LAN_Command_WriteToRegister;
+                tcpSendCommand.sendCommandHasAcknowledge = false;
+                tcpSendCommand.sendRegAddress = System_Reset_Register_Address;
+                tcpSendCommand.sendRegData = System_Reset_Register_Data;
+                tcpSendPacketRequestEventSlim.Set();
+                tcpSendPacketGrantEventSlim.Wait();
+                tcpSendPacketGrantEventSlim.Reset();
+
+                Thread.Sleep(300);
+                while (true)
+                {
+                    if (sendTcpClient.Available >= LAN_Packet_size)
+                    {
+                        sendTcpClient.Receive(_receivedPacketData[_writeIndex], 0, LAN_Packet_size, SocketFlags.None);
+                    }
+                    else if ((sendTcpClient.Available < LAN_Packet_size) && (sendTcpClient.Available != 0))
+                    {
+                        sendTcpClient.Receive(_receivedPacketData[_writeIndex], 0, sendTcpClient.Available, SocketFlags.None);
+                    }
+                    else
+                    {
+                        break;
+                    }
+                }
+
+                _LanConnected = false;
+                sendTcpClient.Disconnect(true);
+                sendTcpClient.Close();
+                sendTcpClient.Dispose();
+            }
+            else
+            {
+                MessageBox.Show("by!");
+            }
+
+        }
+
+
+        #endregion
+
+        #endregion
+
+        //=======================
+    } // end class
+
+} // end namespace
