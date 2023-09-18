@@ -1,0 +1,149 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using System.Threading;
+using NetMQ.Sockets;
+using NetMQ;
+using FIC3;
+using System.Diagnostics;
+
+namespace MOOR_III_Test_App_1400_Ver1.Network_Classes
+{
+
+
+    class ZMQ_Network_Class
+    {
+        
+        //Constructor
+        public ZMQ_Network_Class()
+        {
+        }
+
+        //De constructor
+        ~ZMQ_Network_Class()
+        {
+            //GC.Collect();
+            //GC.SuppressFinalize(this);
+        }
+
+        //Variables      
+        public const int buffersize = 640;
+        byte[] sentBytes = new byte[buffersize];
+        string ip = "";
+        string port = "";
+        Thread publisher;
+        Thread subscriber;
+
+        //Events
+        public event EventHandler SendData;
+        public event EventHandler<byte[]> ReceiveData;
+
+        //Methods
+        public void zmqStart(string ipAddress, int portNo)
+        {
+            ip = ipAddress;
+            port = portNo.ToString();
+            
+            subscriber = new Thread(Subscribe);
+            subscriber.IsBackground = true;
+            subscriber.Start();
+
+            publisher = new Thread(Publish);
+            publisher.IsBackground = true;
+            publisher.Start();
+        }
+
+        private void Publish()
+        {
+            using (var publisher = new PublisherSocket())
+            {
+                try
+                {
+                    publisher.Bind("tcp://*:" + port);
+               
+                    while (true)
+                    {
+                        if (MainWindow.isCommandEventEnabled == true)
+                        {
+                            //SendCommandPacket
+                            MainWindow.sentBytes_ChechSum = 0;
+                            for (int i = 608; i < 640; i++)//(int i = 376; i < 569; i++)
+                            {
+                                MainWindow.sentBytes_ChechSum += MainWindow.sentBytes[i];
+                            }
+                            MainWindow.sentBytes_ChechSum += MainWindow.sentBytes[562];
+                            MainWindow.sentBytes_ChechSum += MainWindow.sentBytes[563];
+                            MainWindow.sentBytes_ChechSum += MainWindow.sentBytes[564];
+
+                            //Form1.sentBytes[569] = (byte)(Form1.sentBytes_ChechSum >> 8);
+                            //Form1.sentBytes[570] = (byte)(Form1.sentBytes_ChechSum - (Form1.sentBytes[569] << 8));
+                            MainWindow.sentBytes[570] = (byte)(MainWindow.sentBytes_ChechSum % 256);
+
+                            publisher.SendFrame(MainWindow.sentBytes); // Message
+                                                                                     // Trace.WriteLine("publisher sent 640 commandBytes."); 
+
+                            MainWindow.isCommandEventEnabled = false;
+                            for (int i = 0; i < MainWindow.sentBytes.Length; i++)
+                            {
+                                MainWindow.sentBytes[i] = 0;
+                            }
+                        }
+                        else
+                        {
+                            //SendRawPacket                    
+                            MainWindow.rawBytes[0] = 0x55; //Header Byte
+                            MainWindow.rawBytes_ChechSum = 0;
+                            for (int i = 608; i < 640; i++)//(int i = 376; i < 569; i++)
+                            {
+                                MainWindow.rawBytes_ChechSum += MainWindow.rawBytes[i];
+                            }
+                            MainWindow.sentBytes_ChechSum += MainWindow.sentBytes[562];
+                            MainWindow.sentBytes_ChechSum += MainWindow.sentBytes[563];
+                            MainWindow.sentBytes_ChechSum += MainWindow.sentBytes[564];
+                            //Form1.rawBytes[569] = (byte)(Form1.rawBytes_ChechSum >> 8);
+                            //Form1.rawBytes[570] = (byte)(Form1.rawBytes_ChechSum - (Form1.rawBytes[569] << 8));
+                            MainWindow.rawBytes[570] = (byte)(MainWindow.rawBytes_ChechSum % 256);
+                            publisher.SendFrame(MainWindow.rawBytes);
+                           // Trace.WriteLine("publisher sent 640 rawBytes.");
+                        }
+                        Thread.Sleep(250);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Trace.WriteLine(ex.Message);
+                }
+            }
+        }
+
+        private void Subscribe()
+        {
+            using (var subscriber = new SubscriberSocket())
+            {
+                subscriber.Connect("tcp://" + ip +":"+port /*192.168.1.144:1234"*/);
+                subscriber.Subscribe("");
+
+                while (true)
+                {
+                    Trace.WriteLine("Subscribe:");
+                    char[] separator = { ' ' };                  
+                    byte[] recvBytes = subscriber.ReceiveFrameBytes();
+                    //Trace.WriteLine(recvBytes[10]);
+                    if (ReceiveData != null)
+                    {
+                        ReceiveData(null, recvBytes); //raise ReceiveData event
+                    }
+                    
+                }
+            }
+        }
+
+        public void Stop()
+        {
+            subscriber.Abort();
+            publisher.Abort();
+        }
+    }
+}
