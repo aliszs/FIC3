@@ -1,0 +1,448 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using System.Net;
+using System.Net.Sockets;
+using System.Threading;
+
+namespace Spray_Imager_Proposal.Network
+{
+    public class AsyncSocket_Server_Class
+    {
+        //Variables
+        private Socket serverSocket;
+        public const int buffersize = 64;
+        public byte[] buffer = new byte[buffersize];
+        private int bytesRead = 0;
+        private string content = "";
+        public Socket clientSendSocket;
+        public string IPsending;
+        int sendingPort = 0;
+        bool networkError = false;
+        Int64 sentCounter = 0;
+        Int64 recvCounter = 0;
+        Thread Net_ThreadTimer;
+
+        //Properties
+        string connectionStatus = "";
+        public string ConnectionStatus
+        {
+            get
+            {
+                return connectionStatus;
+            }
+            set
+            {
+                connectionStatus = value;
+            }
+        }
+        string remoteDevice = "";
+        public string RemoteDevice
+        {
+            get
+            {
+                return remoteDevice;
+            }
+            set
+            {
+                remoteDevice = value;
+            }
+        }
+
+        //Event
+        public event EventHandler StatusChanged;
+        public event EventHandler ReceivedData;
+        public event EventHandler<string> NetworkRaisedErorr;
+        // ManualResetEvent instances signal completion
+        public ManualResetEvent ConnectCompeleted = new ManualResetEvent(false);
+        public ManualResetEvent SendCompeleted = new ManualResetEvent(false);
+        public ManualResetEvent ReceiveCompeleted = new ManualResetEvent(false);
+        public ManualResetEvent AllCompeleted = new ManualResetEvent(false);
+
+        //Constructor
+        public AsyncSocket_Server_Class()
+        {
+            // Create a TCP/IP socket.
+            serverSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+        }
+
+
+        //Functions
+
+        public void StartNetworkTask()
+        {
+            Thread.Sleep(1000); //Sleep 1 sec to complete initial connection
+
+            Net_ThreadTimer = new Thread(NetworkThread);
+            Net_ThreadTimer.Start();
+        }
+
+        private void NetworkThread()
+        {
+            while (true)
+            {
+                Console.WriteLine(connectionStatus);
+                if (connectionStatus == "Connected." || connectionStatus == "Listening.")
+                {
+                    if (FIC3.MainWindow.isCommandEventEnabled == true)
+                    {
+                        //SendCommandPacket
+                        FIC3.MainWindow.sentBytes_ChechSum = 0;
+                        for (int i = 0; i < FIC3.MainWindow.sentBytes.Length - 2; i++)
+                        {
+                            FIC3.MainWindow.sentBytes_ChechSum += FIC3.MainWindow.sentBytes[i];
+                        }
+                        FIC3.MainWindow.sentBytes[63] = (byte)((FIC3.MainWindow.sentBytes_ChechSum & 0x00FF) >> 0);
+                        networkError = Send(FIC3.MainWindow.sentBytes);
+
+                        FIC3.MainWindow.isCommandEventEnabled = false;
+                        for (int i = 0; i < FIC3.MainWindow.sentBytes.Length; i++)
+                        {
+                            FIC3.MainWindow.sentBytes[i] = 0;
+                        }
+                    }
+                    else
+                    {
+                        //SendRawPacket                    
+                        FIC3.MainWindow.rawBytes[0] = 0x55; //Header Byte
+                        FIC3.MainWindow.rawBytes_ChechSum = 0;
+                        for (int i = 0; i < FIC3.MainWindow.rawBytes.Length - 2; i++)
+                        {
+                            FIC3.MainWindow.rawBytes_ChechSum += FIC3.MainWindow.rawBytes[i];
+                        }
+                        FIC3.MainWindow.rawBytes[63] = (byte)((FIC3.MainWindow.rawBytes_ChechSum & 0x00FF) >> 0);
+                        networkError = Send(FIC3.MainWindow.rawBytes);
+                    }
+
+                    if (networkError == false)
+                    {
+                        string error = "sentCounter: " + sentCounter + ", recvCounter: " + recvCounter + ",\r\n" +
+                                       "Can not send after trying two times,\r\n it happend at: " + DateTime.Now;
+                        if (NetworkRaisedErorr != null)
+                        {
+                            NetworkRaisedErorr(this, error);
+                        }
+
+                    }
+                    else
+                    {
+                        sentCounter++;
+                    }
+                }
+
+                Thread.Sleep(250);
+            }
+        }
+
+        public void startListening(int port, int sendingPortIn)
+        {
+            sendingPort = sendingPortIn;
+            IPEndPoint remoteEndPoint = new IPEndPoint(IPAddress.Any, port);
+
+            try
+            {
+                serverSocket.Bind(remoteEndPoint);
+                serverSocket.Listen(10);
+                Console.WriteLine("Async Cmd Socket : waiting for incoming connections...");
+                serverSocket.BeginAccept(new AsyncCallback(AcceptCallbacke), serverSocket);
+                connectionStatus = "Listening.";
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine("Catch: can not listen..." + e.Message);
+                if (NetworkRaisedErorr != null)
+                {
+                    NetworkRaisedErorr(this, e.Message + ",\r\n It happend at: " + DateTime.Now);
+                }
+            }
+        }
+
+        public void ListenAgain()
+        {
+            Thread.Sleep(200);
+            serverSocket.Listen(10);
+            Console.WriteLine("waiting for incoming connections...");
+            serverSocket.BeginAccept(new AsyncCallback(AcceptCallbacke), serverSocket);
+            connectionStatus = "Listening.";
+        }
+
+        private void AcceptCallbacke(IAsyncResult ar)
+        {
+            try
+            {
+                Console.WriteLine("Accept callBack. time: " + DateTime.Now.ToLongTimeString());
+                connectionStatus = "Connected.";
+                if (StatusChanged != null)
+                {
+                    StatusChanged(this, null);
+                }
+
+                // Retrieve the socket from the state object. 
+                Socket sck = (Socket)ar.AsyncState;
+
+                // Complete the connection.             
+                Socket client = sck.EndAccept(ar);
+
+                if (remoteDevice == "Micro")
+                {
+                    clientSendSocket = client;
+                }
+
+                client.ReceiveBufferSize = buffersize;
+                Client_Class clientCls = new Client_Class(client);
+                clientCls.client_ReceivedData += ClientCls_client_ReceivedData;
+                clientCls.ReceivedError += ClientCls_ReceivedError;
+                serverSocket.BeginAccept(new AsyncCallback(AcceptCallbacke), serverSocket);
+
+                ConnectCompeleted.Set();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("AcceptCallbackError: " + ex.Message);
+            }
+        }
+
+        private void ClientCls_ReceivedError(object sender, string message)
+        {
+            message += "sentCounter: " + sentCounter + ", recvCounter: " + recvCounter + ",\r\n" +
+                      "It happend at: " + DateTime.Now;
+            if (NetworkRaisedErorr != null)
+            {
+                NetworkRaisedErorr(this, message);
+            }
+        }
+
+        private void ClientCls_client_ReceivedData(object sender, EventArgs e)
+        {
+            recvCounter++;
+            if (ReceivedData != null)
+            {
+                ReceivedData(sender, null);
+            }
+        }
+
+        public bool Send(byte[] data)
+        {
+            //if (remoteDevice == "GPU")
+            //{
+            //    if (clientSendSocket == null)
+            //    {
+            //        clientSendSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+            //        try
+            //        {
+            //            IPEndPoint address = new IPEndPoint(IPAddress.Parse(IPsending), sendingPort);
+            //            Console.WriteLine("start to connected to IP : " + IPsending.ToString() + "  port : " + sendingPort);
+            //            clientSendSocket.Connect(address);
+            //            Console.WriteLine("Connection is Done");
+            //        }
+            //        catch
+            //        {
+            //            Console.WriteLine("Connection is failed");
+            //            return false;
+            //        }
+            //    }
+            //}
+
+            //try
+            //{
+
+
+            //    int byteSent;
+            //    try
+            //    {
+            //        if (clientSendSocket == null)
+            //        {
+            //            clientSendSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+            //        }
+            //        // Begin sending the data to the remote device.  
+            //        byteSent = clientSendSocket.Send(data);//BeginSend(data, 0, data.Length, 0, new AsyncCallback(SendCallback), clientSendSocket);
+            //    }
+            //    catch (NullReferenceException ex)
+            //    {
+            //        clientSendSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+
+            //        Console.WriteLine("Null reference error occurred: " + ex.Message);
+            //        //byteSent = clientSendSocket.Send(data);//BeginSend(data, 0, data.Length, 0, new AsyncCallback(SendCallback), clientSendSocket);
+
+            //    }
+
+            //    Console.WriteLine("Sending cmd Size: " + data.Length);
+            //    if (byteSent == buffersize)
+            //    {
+            //        //This signal indicate all bytes have been sent.  
+            //        SendCompeleted.Set();
+            //        return true;
+            //    }
+            //    else
+            //    {
+            //        Console.WriteLine("Can not send packet bytes \r\n try again " + data.Length);
+            //        Thread.Sleep(100);
+            //        byteSent = clientSendSocket.Send(data);
+            //        Console.WriteLine("Sending cmd Size: " + data.Length);
+            //        if (byteSent == buffersize)
+            //        {
+
+            //            //This signal indicate all bytes have been sent.  
+            //            SendCompeleted.Set();
+            //            return true;
+            //        }
+            //        else
+            //        {
+            //            return false;
+            //        }
+            //    }
+
+            //}
+            //catch (Exception e)
+            //{
+            //    Console.WriteLine("clientSendSocket connot send" + buffersize + "Bytes[]\r\n" + e.Message);
+
+            //    if (clientSendSocket != null)
+            //    {
+            //        clientSendSocket.Close();
+            //        clientSendSocket = null;
+            //        Console.WriteLine("clientSendSocket connot send" + buffersize + "Bytes[]");
+            //    }
+            //    return false;
+            //}
+
+            if (remoteDevice == "GPU")
+            {
+                if (clientSendSocket == null)
+                {
+                    clientSendSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+                    try
+                    {
+                        IPEndPoint address = new IPEndPoint(IPAddress.Parse(IPsending), sendingPort);
+                        Console.WriteLine("start to connected to IP : " + IPsending.ToString() + "  port : " + sendingPort);
+                        clientSendSocket.Connect(address);
+                        Console.WriteLine("Connection is Done");
+                    }
+                    catch
+                    {
+                        Console.WriteLine("Connection is failed");
+                        return false;
+                    }
+                }
+            }
+
+            try
+            {
+                if (clientSendSocket == null)
+                {
+                    clientSendSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+                }
+                // Begin sending the data to the remote device.  
+                int byteSent = clientSendSocket.Send(data);//BeginSend(data, 0, data.Length, 0, new AsyncCallback(SendCallback), clientSendSocket);
+                Console.WriteLine("Sending cmd Size: " + data.Length);
+                if (byteSent == buffersize)
+                {
+                    //This signal indicate all bytes have been sent.  
+                    SendCompeleted.Set();
+                    return true;
+                }
+                else
+                {
+                    Console.WriteLine("Can not send packet bytes \r\n try again " + data.Length);
+                    Thread.Sleep(100);
+                    byteSent = clientSendSocket.Send(data);
+                    Console.WriteLine("Sending cmd Size: " + data.Length);
+                    if (byteSent == buffersize)
+                    {
+
+                        //This signal indicate all bytes have been sent.  
+                        SendCompeleted.Set();
+                        return true;
+                    }
+                    else
+                    {
+                        return false;
+                    }
+                }
+
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine("clientSendSocket connot send" + buffersize + "Bytes[]\r\n" + e.Message);
+
+                if (clientSendSocket != null)
+                {
+                    clientSendSocket.Close();
+                    clientSendSocket = null;
+                    Console.WriteLine("clientSendSocket connot send" + buffersize + "Bytes[]");
+                }
+                return false;
+            }
+        }
+
+        private void SendCallback(IAsyncResult ar)
+        {
+            try
+            {
+                // Retrieve the socket from the state object.  
+                Socket handler = (Socket)ar.AsyncState;
+
+                // Complete sending the data to the remote device. 
+                int byteSent = handler.EndSend(ar);
+                if (byteSent != buffersize)
+                {
+                    Console.WriteLine("send less than " + buffersize + " bytes. sent: " + byteSent);
+                }
+
+                //Console.WriteLine($"sent: {byteSent} to client");
+                //This signal indicate all bytes have been sent.  
+                SendCompeleted.Set();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine(ex.Message);
+            }
+        }
+
+        public void Disconnect()
+        {
+            try
+            {
+                //serverSocket.Shutdown(SocketShutdown.Both);              
+
+                if (serverSocket.Connected)
+                {
+                    serverSocket.Disconnect(true);
+                    serverSocket.Close();
+
+                    Console.WriteLine("server socket is disconnected");
+
+                }
+                if (clientSendSocket.Connected)
+                {
+                    clientSendSocket.Disconnect(true);
+
+                    clientSendSocket.Close();
+                    Console.WriteLine("client socket is disconnected");
+                }
+
+                connectionStatus = "Disconnected.";
+            }
+            catch (Exception e)
+            {
+                string message = "sentCounter: " + sentCounter + ", recvCounter: " + recvCounter +
+                                 ",\r\n" + e.Message + ",\r\n it happend at: " + DateTime.Now;
+                Console.WriteLine(message);
+
+                if (NetworkRaisedErorr != null)
+                {
+                    NetworkRaisedErorr(this, message);
+                }
+            }
+        }
+
+
+        public void TerminateThread()
+        {
+            Net_ThreadTimer.Abort();
+        }
+
+    }
+}
