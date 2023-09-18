@@ -1,0 +1,3001 @@
+using System;
+using System.Drawing;
+using System.Drawing.Imaging;
+using System.IO;
+using MD.PersianDateTime;
+using System.Windows;
+
+namespace Image_Namespace
+{
+    public class Image_Processing_Class
+    {
+        public double deflaction = 0;
+        public double mse_Integrity = 0;
+        public double mse_Integrity_Under = 0;
+        public bool divide_by_zero = false;
+
+        public PointF[] triangle_Vertex;
+
+        public int last_Entry_Point = 0;
+        public int last_Exit_Point = 0;
+        public int automate_End_Calculation_Zone = 0;
+
+        public System.Drawing.Point start_Bisector;
+        public System.Drawing.Point end_Bisector;
+
+        public double a_Left_Line = 0;
+        public double b_Left_Line = 0;
+
+        public double a_Right_Line = 0;
+        public double b_Right_Line = 0;
+
+        public int[] entry_Points;
+        public int[] exit_Points;
+
+        public int[] entry_Points_Thermal;
+        public int[] exit_Points_thermal;
+
+        public int start_Vertical_Thermal;
+        public int end_Vertical_Thermal;
+
+        public double RSE_Cap1_Left = 0;
+        public double RSE_Cap1_Right = 0;
+
+        public double RSE_Cap2_Left = 0;
+        public double RSE_Cap2_Right = 0;
+
+        public double RSE_Cap3_Left = 0;
+        public double RSE_Cap3_Right = 0;
+
+        public double RSE_Cap4_Left = 0;
+        public double RSE_Cap4_Right = 0;
+
+        public float max_Brightness = 0;
+
+        public System.Drawing.Point[] three_Brightest = new System.Drawing.Point[3];
+
+        public System.Drawing.Point start_Point_Left;
+        public System.Drawing.Point end_Point_Left;
+
+        public System.Drawing.Point start_Point_Right;
+        public System.Drawing.Point end_Point_Right;
+
+        public double angle_Between_Border = 0;
+
+        bool captureAll_cmd = false;
+        public bool CaptureAll_cmd
+        {
+            get { return captureAll_cmd; }
+            set { captureAll_cmd = value; }
+        }
+
+        public struct Geometric_Parameters
+        {
+            public bool Show_Triangle;
+            public bool Inverted_Brightness;
+            public double Threshold_Value;
+            public double Start_Spray_Calculation_Zone ;
+            public double End_Spray_Calculation_Zone ;
+            public double Angle;
+        }
+
+        public Bitmap Apply_IIR_LowPass_Filter(Bitmap b_In, double alpha)
+        {
+            int w = b_In.Width;
+            int h = b_In.Height;
+
+            Bitmap b_Out = (Bitmap)b_In.Clone();
+
+            BitmapData bmd_Input = b_In.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.ReadWrite, PixelFormat.Format24bppRgb);
+            BitmapData bmd_Output = b_Out.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.ReadWrite, PixelFormat.Format24bppRgb);
+
+            int stride = bmd_Output.Stride;
+            int jump = stride - 3 * w;
+
+            unsafe
+            {
+                byte* ptr_Input = (byte*)((void*)bmd_Input.Scan0) + stride + 3;
+
+                byte* ptr_Output = (byte*)((void*)bmd_Output.Scan0) + stride + 3;
+
+                byte* ptr_Output_22 = ptr_Output - 1 * stride - 3;
+                byte* ptr_Output_21 = ptr_Output - 1 * stride - 0;
+                byte* ptr_Output_12 = ptr_Output - 0 * stride - 3;
+                
+                double pixel_Value = 0;
+
+                double[] line_R_Buf_Prev = new double[w];
+                double[] line_G_Buf_Prev = new double[w];
+                double[] line_B_Buf_Prev = new double[w];
+
+                double[] line_R_Buf_Now = new double[w];
+                double[] line_G_Buf_Now = new double[w];
+                double[] line_B_Buf_Now = new double[w];
+
+                for (int i = 0; i < w; i++)
+                {
+                    line_R_Buf_Prev[i] = *(ptr_Input + 2);
+                    line_G_Buf_Prev[i] = *(ptr_Input + 1);
+                    line_B_Buf_Prev[i] = *(ptr_Input + 0);
+
+                    ptr_Input += 3;
+                }
+
+                ptr_Input += jump;
+
+                line_R_Buf_Now[0] = *(ptr_Input + 2);
+                line_G_Buf_Now[0] = *(ptr_Input + 1);
+                line_B_Buf_Now[0] = *(ptr_Input + 0);
+
+                ptr_Input += 3;
+
+
+
+                for (int y = 1; y < h - 1; y++)
+                {
+                    for (int x = 1; x < w - 1; x++)
+                    {
+
+                        line_B_Buf_Now[x] = alpha * (line_B_Buf_Prev[x] + line_B_Buf_Now[x - 1] + line_B_Buf_Prev[x - 1] + line_B_Buf_Prev[x + 1]) / 4 +
+                                            (1 - alpha) * (*ptr_Input);
+                        pixel_Value = line_B_Buf_Now[x];
+                        if (pixel_Value < 0)
+                        {
+                            pixel_Value = 0;
+                        }
+                        if (pixel_Value > 255)
+                        {
+                            pixel_Value = 255;
+                        }
+                        *ptr_Output = (byte)(pixel_Value);
+
+                        ptr_Input++;
+                        ptr_Output++;
+
+
+                        line_G_Buf_Now[x] = alpha * (line_G_Buf_Prev[x] + line_G_Buf_Now[x - 1] + line_G_Buf_Prev[x - 1] + line_G_Buf_Prev[x + 1]) / 4 +
+                                            (1 - alpha) * (*ptr_Input);
+
+                        pixel_Value = line_G_Buf_Now[x];
+                        if (pixel_Value < 0)
+                        {
+                            pixel_Value = 0;
+                        }
+                        if (pixel_Value > 255)
+                        {
+                            pixel_Value = 255;
+                        }
+                        *ptr_Output = (byte)(pixel_Value);
+
+                        ptr_Input++;
+                        ptr_Output++;
+
+
+                        line_R_Buf_Now[x] = alpha * (line_R_Buf_Prev[x] + line_R_Buf_Now[x - 1] + line_R_Buf_Prev[x - 1] + line_R_Buf_Prev[x + 1]) / 4 +
+                                            (1 - alpha) * (*ptr_Input);
+
+                        pixel_Value = line_R_Buf_Now[x];
+                        if (pixel_Value < 0)
+                        {
+                            pixel_Value = 0;
+                        }
+                        if (pixel_Value > 255)
+                        {
+                            pixel_Value = 255;
+                        }
+                        *ptr_Output = (byte)(pixel_Value);
+
+                        ptr_Input++;
+                        ptr_Output++;
+
+                    }//x
+
+                    ptr_Input += 3 + jump;
+                    ptr_Output += 3 + jump;
+
+                    for (int i = 0; i < w - 1; i++)
+                    {
+                        line_R_Buf_Prev[i] = line_R_Buf_Now[i];
+                        line_G_Buf_Prev[i] = line_G_Buf_Now[i];
+                        line_B_Buf_Prev[i] = line_B_Buf_Now[i];
+                    }
+                    line_R_Buf_Now[0] = *(ptr_Input + 2);
+                    line_G_Buf_Now[0] = *(ptr_Input + 1);
+                    line_B_Buf_Now[0] = *(ptr_Input + 0);
+
+                    ptr_Input += 3;
+                    ptr_Output += 3;
+
+                }//y
+
+                b_In.UnlockBits(bmd_Input);
+                b_Out.UnlockBits(bmd_Output);
+            }//unsafe
+
+            return b_Out;
+
+        }
+
+        private void Sort(byte[] pixel_Data)
+        {
+            byte temp = 0;
+            for (int i = 0; i < pixel_Data.Length; i++)
+            {
+                for (int j = 1; j < pixel_Data.Length - i; j++)
+                {
+                    if (pixel_Data[j] < pixel_Data[j - 1])
+                    {
+                        temp = pixel_Data[j - 1];
+                        pixel_Data[j - 1] = pixel_Data[j];
+                        pixel_Data[j] = temp;
+                    }
+                }
+            }
+        }
+
+        public Bitmap Convert_Pixel_Array_To_RGB_Image(UInt16[] raw_Data, int w, int h)
+        {
+            Bitmap b_Out = new Bitmap(w, h, System.Drawing.Imaging.PixelFormat.Format24bppRgb);
+
+            BitmapData bmd_Out = b_Out.LockBits(new System.Drawing.Rectangle(0, 0, w, h), ImageLockMode.ReadWrite, System.Drawing.Imaging.PixelFormat.Format24bppRgb);
+
+            int stride = bmd_Out.Stride;
+            int jump = stride - 3 * w;
+
+            unsafe
+            {
+                byte* ptr_Out = (byte*)((void*)bmd_Out.Scan0);
+
+                // Process
+                // Fill entry[] from left to right
+                int index = 0;
+
+                for (int y = 0; y < h; y++)
+                {
+                    for (int x = 0; x < w; x++)
+                    {
+
+                        //Apply FPN LUT
+                        byte level;
+                        //level = lut_Mapping[raw_Data[index]];
+
+                        *(ptr_Out + 0) = (byte)(raw_Data[index] / 4); //B
+                        *(ptr_Out + 1) = (byte)(raw_Data[index] / 4); //G
+                        *(ptr_Out + 2) = (byte)(raw_Data[index] / 4); //R
+
+                        ptr_Out += 3;
+                        index++;
+
+                    }
+                    ptr_Out += jump;
+                }
+
+                b_Out.UnlockBits(bmd_Out);
+            }
+
+            return b_Out;
+        }
+
+        public Bitmap Apply_Median_3X3(Bitmap b_In)
+        {
+            int w = b_In.Width;
+            int h = b_In.Height;
+
+            Bitmap b_Out = (Bitmap)b_In.Clone();
+
+            BitmapData bmd_Input = b_In.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.ReadWrite, PixelFormat.Format24bppRgb);
+            BitmapData bmd_Output = b_Out.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.ReadWrite, PixelFormat.Format24bppRgb);
+
+            byte[] neighbors = new byte[9];
+
+            int stride = bmd_Output.Stride;
+            int jump = stride - 3 * w;
+
+            unsafe
+            {
+                byte* ptr_Median = (byte*)((void*)bmd_Output.Scan0) + stride + 3;
+                byte* ptr_Input = (byte*)((void*)bmd_Input.Scan0) + stride + 3;
+
+                byte* ptr_11 = ptr_Input - stride - 3;
+                byte* ptr_12 = ptr_Input - stride + 0;
+                byte* ptr_13 = ptr_Input - stride + 3;
+                byte* ptr_21 = ptr_Input - 3;
+                byte* ptr_22 = ptr_Input + 0;
+                byte* ptr_23 = ptr_Input + 3;
+                byte* ptr_31 = ptr_Input + stride - 3;
+                byte* ptr_32 = ptr_Input + stride + 0;
+                byte* ptr_33 = ptr_Input + stride + 3;
+
+
+
+                for (int y = 1; y < h - 1; y++)
+                {
+                    for (int x = 1; x < w - 1; x++)
+                    {
+                        for (int k = 0; k < 3; k++)
+                        {
+                            neighbors[0] = *ptr_11;
+                            neighbors[1] = *ptr_12;
+                            neighbors[2] = *ptr_13;
+                            neighbors[3] = *ptr_21;
+                            neighbors[4] = *ptr_22;
+                            neighbors[5] = *ptr_23;
+                            neighbors[6] = *ptr_31;
+                            neighbors[7] = *ptr_32;
+                            neighbors[8] = *ptr_33;
+
+                            Sort(neighbors);
+                            *ptr_Median = neighbors[5]; // Median
+
+                            ptr_11++;
+                            ptr_12++;
+                            ptr_13++;
+                            ptr_21++;
+                            ptr_22++;
+                            ptr_23++;
+                            ptr_31++;
+                            ptr_32++;
+                            ptr_33++;
+
+                            ptr_Median++;
+
+
+                        }//k
+                    }//x
+                    ptr_11 += 3 + jump + 3;
+                    ptr_12 += 3 + jump + 3;
+                    ptr_13 += 3 + jump + 3;
+                    ptr_21 += 3 + jump + 3;
+                    ptr_22 += 3 + jump + 3;
+                    ptr_23 += 3 + jump + 3;
+                    ptr_31 += 3 + jump + 3;
+                    ptr_32 += 3 + jump + 3;
+                    ptr_33 += 3 + jump + 3;
+
+                    ptr_Median += 6 + jump;
+                }//y      
+
+                b_In.UnlockBits(bmd_Input);
+                b_Out.UnlockBits(bmd_Output);
+
+            }//Unsafe
+
+            return b_Out;
+        }
+
+        public Bitmap Apply_Minimum_3X3(Bitmap b_In)
+        {
+            int w = b_In.Width;
+            int h = b_In.Height;
+
+            Bitmap b_Out = (Bitmap)b_In.Clone();
+
+            BitmapData bmd_Input = b_In.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.ReadWrite, PixelFormat.Format24bppRgb);
+            BitmapData bmd_Output = b_Out.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.ReadWrite, PixelFormat.Format24bppRgb);
+
+            byte[] neighbors = new byte[9];
+
+            int stride = bmd_Output.Stride;
+            int jump = stride - 3 * w;
+
+            unsafe
+            {
+                byte* ptr_Median = (byte*)((void*)bmd_Output.Scan0) + stride + 3;
+                byte* ptr_Input = (byte*)((void*)bmd_Input.Scan0) + stride + 3;
+
+                byte* ptr_11 = ptr_Input - stride - 3;
+                byte* ptr_12 = ptr_Input - stride + 0;
+                byte* ptr_13 = ptr_Input - stride + 3;
+                byte* ptr_21 = ptr_Input - 3;
+                byte* ptr_22 = ptr_Input + 0;
+                byte* ptr_23 = ptr_Input + 3;
+                byte* ptr_31 = ptr_Input + stride - 3;
+                byte* ptr_32 = ptr_Input + stride + 0;
+                byte* ptr_33 = ptr_Input + stride + 3;
+
+
+
+                for (int y = 1; y < h - 1; y++)
+                {
+                    for (int x = 1; x < w - 1; x++)
+                    {
+                        for (int k = 0; k < 3; k++)
+                        {
+                            neighbors[0] = *ptr_11;
+                            neighbors[1] = *ptr_12;
+                            neighbors[2] = *ptr_13;
+                            neighbors[3] = *ptr_21;
+                            neighbors[4] = *ptr_22;
+                            neighbors[5] = *ptr_23;
+                            neighbors[6] = *ptr_31;
+                            neighbors[7] = *ptr_32;
+                            neighbors[8] = *ptr_33;
+
+                            Sort(neighbors);
+                            *ptr_Median = neighbors[0]; // Minimum
+
+                            ptr_11++;
+                            ptr_12++;
+                            ptr_13++;
+                            ptr_21++;
+                            ptr_22++;
+                            ptr_23++;
+                            ptr_31++;
+                            ptr_32++;
+                            ptr_33++;
+
+                            ptr_Median++;
+
+
+                        }//k
+                    }//x
+                    ptr_11 += 3 + jump + 3;
+                    ptr_12 += 3 + jump + 3;
+                    ptr_13 += 3 + jump + 3;
+                    ptr_21 += 3 + jump + 3;
+                    ptr_22 += 3 + jump + 3;
+                    ptr_23 += 3 + jump + 3;
+                    ptr_31 += 3 + jump + 3;
+                    ptr_32 += 3 + jump + 3;
+                    ptr_33 += 3 + jump + 3;
+
+                    ptr_Median += 6 + jump;
+                }//y      
+
+                b_In.UnlockBits(bmd_Input);
+                b_Out.UnlockBits(bmd_Output);
+
+            }//Unsafe
+
+            return b_Out;
+        }
+
+        public Bitmap Apply_Minimum_5X5(Bitmap b_In)
+        {
+            int w = b_In.Width;
+            int h = b_In.Height;
+
+            Bitmap b_Out = (Bitmap)b_In.Clone();
+
+            BitmapData bmd_Input = b_In.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.ReadWrite, PixelFormat.Format24bppRgb);
+            BitmapData bmd_Output = b_Out.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.ReadWrite, PixelFormat.Format24bppRgb);
+
+            byte[] neighbors = new byte[25];
+
+            int stride = bmd_Output.Stride;
+            int jump = stride - 3 * w;
+
+            unsafe
+            {
+                byte* ptr_Min = (byte*)((void*)bmd_Output.Scan0) + 2 * stride + 6;
+                byte* ptr_Input = (byte*)((void*)bmd_Input.Scan0) + 2 * stride + 6;
+
+                byte* ptr_11 = ptr_Input - 2 * stride - 6;
+                byte* ptr_12 = ptr_Input - 2 * stride - 3;
+                byte* ptr_13 = ptr_Input - 2 * stride + 0;
+                byte* ptr_14 = ptr_Input - 2 * stride + 3;
+                byte* ptr_15 = ptr_Input - 2 * stride + 6;
+
+                byte* ptr_21 = ptr_Input - 1 * stride - 6;
+                byte* ptr_22 = ptr_Input - 1 * stride - 3;
+                byte* ptr_23 = ptr_Input - 1 * stride + 0;
+                byte* ptr_24 = ptr_Input - 1 * stride + 3;
+                byte* ptr_25 = ptr_Input - 1 * stride + 6;
+
+                byte* ptr_31 = ptr_Input - 3;
+                byte* ptr_32 = ptr_Input + 0;
+                byte* ptr_33 = ptr_Input + 3;
+                byte* ptr_34 = ptr_Input + 3;
+                byte* ptr_35 = ptr_Input + 3;
+
+                byte* ptr_41 = ptr_Input + 1 * stride - 6;
+                byte* ptr_42 = ptr_Input + 1 * stride - 3;
+                byte* ptr_43 = ptr_Input + 1 * stride + 0;
+                byte* ptr_44 = ptr_Input + 1 * stride + 3;
+                byte* ptr_45 = ptr_Input + 1 * stride + 6;
+
+                byte* ptr_51 = ptr_Input + 2 * stride - 6;
+                byte* ptr_52 = ptr_Input + 2 * stride - 3;
+                byte* ptr_53 = ptr_Input + 2 * stride + 0;
+                byte* ptr_54 = ptr_Input + 2 * stride + 3;
+                byte* ptr_55 = ptr_Input + 2 * stride + 6;
+
+
+                for (int y = 1; y < h - 1; y++)
+                {
+                    for (int x = 1; x < w - 1; x++)
+                    {
+                        for (int k = 0; k < 3; k++)
+                        {
+                            neighbors[0] = *ptr_11;
+                            neighbors[1] = *ptr_12;
+                            neighbors[2] = *ptr_13;
+                            neighbors[3] = *ptr_14;
+                            neighbors[4] = *ptr_15;
+
+                            neighbors[5] = *ptr_21;
+                            neighbors[6] = *ptr_22;
+                            neighbors[7] = *ptr_23;
+                            neighbors[8] = *ptr_24;
+                            neighbors[9] = *ptr_25;
+
+                            neighbors[10] = *ptr_31;
+                            neighbors[11] = *ptr_32;
+                            neighbors[12] = *ptr_33;
+                            neighbors[13] = *ptr_34;
+                            neighbors[14] = *ptr_35;
+
+                            neighbors[15] = *ptr_41;
+                            neighbors[16] = *ptr_42;
+                            neighbors[17] = *ptr_43;
+                            neighbors[18] = *ptr_44;
+                            neighbors[19] = *ptr_45;
+
+                            neighbors[20] = *ptr_51;
+                            neighbors[21] = *ptr_52;
+                            neighbors[22] = *ptr_53;
+                            neighbors[23] = *ptr_54;
+                            neighbors[24] = *ptr_55;
+
+                            Sort(neighbors);
+                            *ptr_Min = neighbors[0]; // Minimum
+
+                            ptr_11++;
+                            ptr_12++;
+                            ptr_13++;
+                            ptr_14++;
+                            ptr_15++;
+
+                            ptr_21++;
+                            ptr_22++;
+                            ptr_23++;
+                            ptr_24++;
+                            ptr_25++;
+
+                            ptr_31++;
+                            ptr_32++;
+                            ptr_33++;
+                            ptr_34++;
+                            ptr_35++;
+
+                            ptr_41++;
+                            ptr_42++;
+                            ptr_43++;
+                            ptr_44++;
+                            ptr_45++;
+
+                            ptr_51++;
+                            ptr_52++;
+                            ptr_53++;
+                            ptr_54++;
+                            ptr_55++;
+
+                            ptr_Min++;
+
+
+                        }//k
+                    }//x
+                    ptr_11 += 3 + jump + 3;
+                    ptr_12 += 3 + jump + 3;
+                    ptr_13 += 3 + jump + 3;
+                    ptr_14 += 3 + jump + 3;
+                    ptr_15 += 3 + jump + 3;
+
+                    ptr_21 += 3 + jump + 3;
+                    ptr_22 += 3 + jump + 3;
+                    ptr_23 += 3 + jump + 3;
+                    ptr_24 += 3 + jump + 3;
+                    ptr_25 += 3 + jump + 3;
+
+                    ptr_31 += 3 + jump + 3;
+                    ptr_32 += 3 + jump + 3;
+                    ptr_33 += 3 + jump + 3;
+                    ptr_34 += 3 + jump + 3;
+                    ptr_35 += 3 + jump + 3;
+
+                    ptr_41 += 3 + jump + 3;
+                    ptr_42 += 3 + jump + 3;
+                    ptr_43 += 3 + jump + 3;
+                    ptr_44 += 3 + jump + 3;
+                    ptr_45 += 3 + jump + 3;
+
+                    ptr_51 += 3 + jump + 3;
+                    ptr_52 += 3 + jump + 3;
+                    ptr_53 += 3 + jump + 3;
+                    ptr_54 += 3 + jump + 3;
+                    ptr_55 += 3 + jump + 3;
+
+                    ptr_Min += 6 + jump;
+                }//y      
+
+                b_In.UnlockBits(bmd_Input);
+                b_Out.UnlockBits(bmd_Output);
+
+            }//Unsafe
+
+            return b_Out;
+        }
+
+        public Bitmap Apply_Thermal_Processing_5X5(Bitmap b_In)
+        {
+            int w = b_In.Width;
+            int h = b_In.Height;
+
+            Bitmap b_Out = (Bitmap)b_In.Clone();
+
+            BitmapData bmd_Input = b_In.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.ReadWrite, PixelFormat.Format24bppRgb);
+            //BitmapData bmd_Output = b_Out.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.ReadWrite, PixelFormat.Format24bppRgb);
+
+            Graphics gfx = Graphics.FromImage(b_Out);
+            Pen rectangle_Pen = new Pen(Color.White, 1.0F);
+            Rectangle rect = new Rectangle(0, 0, 20, 20);
+
+            byte[] blue_Neighbors = new byte[25];
+            byte[] green_Neighbors = new byte[25];
+            byte[] red_Neighbors = new byte[25];
+
+            int stride = bmd_Input.Stride;
+            int jump = stride - 3 * w;
+
+            double red_AVG = 0;
+            double green_AVG = 0;
+
+
+            unsafe
+            {
+                byte* ptr_Min = (byte*)((void*)bmd_Input.Scan0) + 2 * stride + 6;
+                byte* ptr_Input = (byte*)((void*)bmd_Input.Scan0) + 2 * stride + 6;
+
+                byte* ptr_11 = ptr_Input - 2 * stride - 6;
+                byte* ptr_12 = ptr_Input - 2 * stride - 3;
+                byte* ptr_13 = ptr_Input - 2 * stride + 0;
+                byte* ptr_14 = ptr_Input - 2 * stride + 3;
+                byte* ptr_15 = ptr_Input - 2 * stride + 6;
+
+                byte* ptr_21 = ptr_Input - 1 * stride - 6;
+                byte* ptr_22 = ptr_Input - 1 * stride - 3;
+                byte* ptr_23 = ptr_Input - 1 * stride + 0;
+                byte* ptr_24 = ptr_Input - 1 * stride + 3;
+                byte* ptr_25 = ptr_Input - 1 * stride + 6;
+
+                byte* ptr_31 = ptr_Input - 3;
+                byte* ptr_32 = ptr_Input + 0;
+                byte* ptr_33 = ptr_Input + 3;
+                byte* ptr_34 = ptr_Input + 3;
+                byte* ptr_35 = ptr_Input + 3;
+
+                byte* ptr_41 = ptr_Input + 1 * stride - 6;
+                byte* ptr_42 = ptr_Input + 1 * stride - 3;
+                byte* ptr_43 = ptr_Input + 1 * stride + 0;
+                byte* ptr_44 = ptr_Input + 1 * stride + 3;
+                byte* ptr_45 = ptr_Input + 1 * stride + 6;
+
+                byte* ptr_51 = ptr_Input + 2 * stride - 6;
+                byte* ptr_52 = ptr_Input + 2 * stride - 3;
+                byte* ptr_53 = ptr_Input + 2 * stride + 0;
+                byte* ptr_54 = ptr_Input + 2 * stride + 3;
+                byte* ptr_55 = ptr_Input + 2 * stride + 6;
+
+
+                for (int y = 1; y < h - 1; y++)
+                {
+                    for (int x = 1; x < w - 1; x++)
+                    {
+                        //for (int k = 0; k < 3; k++)
+                        //{
+                        blue_Neighbors[0] = *(ptr_11 + 0);
+                        blue_Neighbors[1] = *(ptr_12 + 0);
+                        blue_Neighbors[2] = *(ptr_13 + 0);
+                        blue_Neighbors[3] = *(ptr_14 + 0);
+                        blue_Neighbors[4] = *(ptr_15 + 0);
+
+                        blue_Neighbors[5] = *(ptr_21 + 0);
+                        blue_Neighbors[6] = *(ptr_22 + 0);
+                        blue_Neighbors[7] = *(ptr_23 + 0);
+                        blue_Neighbors[8] = *(ptr_24 + 0);
+                        blue_Neighbors[9] = *(ptr_25 + 0);
+
+                        blue_Neighbors[10] = *(ptr_31 + 0);
+                        blue_Neighbors[11] = *(ptr_32 + 0);
+                        blue_Neighbors[12] = *(ptr_33 + 0);
+                        blue_Neighbors[13] = *(ptr_34 + 0);
+                        blue_Neighbors[14] = *(ptr_35 + 0);
+
+                        blue_Neighbors[15] = *(ptr_41 + 0);
+                        blue_Neighbors[16] = *(ptr_42 + 0);
+                        blue_Neighbors[17] = *(ptr_43 + 0);
+                        blue_Neighbors[18] = *(ptr_44 + 0);
+                        blue_Neighbors[19] = *(ptr_45 + 0);
+
+                        blue_Neighbors[20] = *(ptr_51 + 0);
+                        blue_Neighbors[21] = *(ptr_52 + 0);
+                        blue_Neighbors[22] = *(ptr_53 + 0);
+                        blue_Neighbors[23] = *(ptr_54 + 0);
+                        blue_Neighbors[24] = *(ptr_55 + 0);
+
+
+
+                        green_Neighbors[0] = *(ptr_11 + 1);
+                        green_Neighbors[1] = *(ptr_12 + 1);
+                        green_Neighbors[2] = *(ptr_13 + 1);
+                        green_Neighbors[3] = *(ptr_14 + 1);
+                        green_Neighbors[4] = *(ptr_15 + 1);
+
+                        green_Neighbors[5] = *(ptr_21 + 1);
+                        green_Neighbors[6] = *(ptr_22 + 1);
+                        green_Neighbors[7] = *(ptr_23 + 1);
+                        green_Neighbors[8] = *(ptr_24 + 1);
+                        green_Neighbors[9] = *(ptr_25 + 1);
+
+                        green_Neighbors[10] = *(ptr_31 + 1);
+                        green_Neighbors[11] = *(ptr_32 + 1);
+                        green_Neighbors[12] = *(ptr_33 + 1);
+                        green_Neighbors[13] = *(ptr_34 + 1);
+                        green_Neighbors[14] = *(ptr_35 + 1);
+
+                        green_Neighbors[15] = *(ptr_41 + 1);
+                        green_Neighbors[16] = *(ptr_42 + 1);
+                        green_Neighbors[17] = *(ptr_43 + 1);
+                        green_Neighbors[18] = *(ptr_44 + 1);
+                        green_Neighbors[19] = *(ptr_45 + 1);
+
+                        green_Neighbors[20] = *(ptr_51 + 1);
+                        green_Neighbors[21] = *(ptr_52 + 1);
+                        green_Neighbors[22] = *(ptr_53 + 1);
+                        green_Neighbors[23] = *(ptr_54 + 1);
+                        green_Neighbors[24] = *(ptr_55 + 1);
+
+
+
+                        red_Neighbors[0] = *(ptr_11 + 2);
+                        red_Neighbors[1] = *(ptr_12 + 2);
+                        red_Neighbors[2] = *(ptr_13 + 2);
+                        red_Neighbors[3] = *(ptr_14 + 2);
+                        red_Neighbors[4] = *(ptr_15 + 2);
+
+                        red_Neighbors[5] = *(ptr_21 + 2);
+                        red_Neighbors[6] = *(ptr_22 + 2);
+                        red_Neighbors[7] = *(ptr_23 + 2);
+                        red_Neighbors[8] = *(ptr_24 + 2);
+                        red_Neighbors[9] = *(ptr_25 + 2);
+
+                        red_Neighbors[10] = *(ptr_31 + 2);
+                        red_Neighbors[11] = *(ptr_32 + 2);
+                        red_Neighbors[12] = *(ptr_33 + 2);
+                        red_Neighbors[13] = *(ptr_34 + 2);
+                        red_Neighbors[14] = *(ptr_35 + 2);
+
+                        red_Neighbors[15] = *(ptr_41 + 2);
+                        red_Neighbors[16] = *(ptr_42 + 2);
+                        red_Neighbors[17] = *(ptr_43 + 2);
+                        red_Neighbors[18] = *(ptr_44 + 2);
+                        red_Neighbors[19] = *(ptr_45 + 2);
+
+                        red_Neighbors[20] = *(ptr_51 + 2);
+                        red_Neighbors[21] = *(ptr_52 + 2);
+                        red_Neighbors[22] = *(ptr_53 + 2);
+                        red_Neighbors[23] = *(ptr_54 + 2);
+                        red_Neighbors[24] = *(ptr_55 + 2);
+
+                        for (int i = 0; i < 25; i++)
+                        {
+                            red_AVG += red_Neighbors[i];
+                            green_AVG += green_Neighbors[i];
+                        }
+
+                        red_AVG = red_AVG / 25;
+                        green_AVG = green_AVG / 25;
+
+                        if (Math.Abs(red_AVG - green_AVG) < 1 && red_AVG > 253)
+                        {
+                            if (x - 10 < 0)
+                            {
+                                rect = new Rectangle(x, y, 20, 20);
+                            }
+                            else
+                            {
+                                rect = new Rectangle(x - 10, y - 10, 20, 20);
+                            }
+                            gfx.DrawRectangle(rectangle_Pen, rect);
+                        }
+
+                        //Sort(green_Neighbors);
+                        //*ptr_Min = green_Neighbors[0]; // Minimum
+
+                        ptr_11++;
+                        ptr_12++;
+                        ptr_13++;
+                        ptr_14++;
+                        ptr_15++;
+
+                        ptr_21++;
+                        ptr_22++;
+                        ptr_23++;
+                        ptr_24++;
+                        ptr_25++;
+
+                        ptr_31++;
+                        ptr_32++;
+                        ptr_33++;
+                        ptr_34++;
+                        ptr_35++;
+
+                        ptr_41++;
+                        ptr_42++;
+                        ptr_43++;
+                        ptr_44++;
+                        ptr_45++;
+
+                        ptr_51++;
+                        ptr_52++;
+                        ptr_53++;
+                        ptr_54++;
+                        ptr_55++;
+
+                        //ptr_Min++;
+
+
+                        //}//k
+
+                        for (int i = 0; i < 25; i++)
+                        {
+                            red_Neighbors[i] = (byte)0;
+                            green_Neighbors[i] = (byte)0;
+                        }
+
+                        red_AVG = 0;
+                        green_AVG = 0;
+
+                    }//x
+                    ptr_11 += 3 + jump + 3;
+                    ptr_12 += 3 + jump + 3;
+                    ptr_13 += 3 + jump + 3;
+                    ptr_14 += 3 + jump + 3;
+                    ptr_15 += 3 + jump + 3;
+
+                    ptr_21 += 3 + jump + 3;
+                    ptr_22 += 3 + jump + 3;
+                    ptr_23 += 3 + jump + 3;
+                    ptr_24 += 3 + jump + 3;
+                    ptr_25 += 3 + jump + 3;
+
+                    ptr_31 += 3 + jump + 3;
+                    ptr_32 += 3 + jump + 3;
+                    ptr_33 += 3 + jump + 3;
+                    ptr_34 += 3 + jump + 3;
+                    ptr_35 += 3 + jump + 3;
+
+                    ptr_41 += 3 + jump + 3;
+                    ptr_42 += 3 + jump + 3;
+                    ptr_43 += 3 + jump + 3;
+                    ptr_44 += 3 + jump + 3;
+                    ptr_45 += 3 + jump + 3;
+
+                    ptr_51 += 3 + jump + 3;
+                    ptr_52 += 3 + jump + 3;
+                    ptr_53 += 3 + jump + 3;
+                    ptr_54 += 3 + jump + 3;
+                    ptr_55 += 3 + jump + 3;
+
+                    ptr_Min += 6 + jump;
+                }//y      
+
+                b_In.UnlockBits(bmd_Input);
+                //b_Out.UnlockBits(bmd_Output);
+
+            }//Unsafe
+
+            return b_Out;
+        }
+
+        public double Find_Hue(byte blue, byte green, byte red)
+        {
+            double hue = 0;
+
+            int min = Math.Min(Math.Min(blue, green), red);
+            int max = Math.Max(Math.Max(blue, green), red);
+
+            if (max == red)
+            {
+                hue = (green - blue) / (max - min);
+            }
+            else if (max == green)
+            {
+                hue = 2 + (blue - red) / (max - min);
+            }
+            else {
+                hue = 4 + (red - green) / (max - min);
+            }
+
+            hue = hue * 60;
+            if (hue < 0) hue = hue + 360;
+
+            return Math.Round(hue);
+            
+        }
+
+        public Bitmap Apply_Median_5X5(Bitmap b_In)
+        {
+            int w = b_In.Width;
+            int h = b_In.Height;
+
+            Bitmap b_Out = (Bitmap)b_In.Clone();
+
+            BitmapData bmd_Input = b_In.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.ReadWrite, PixelFormat.Format24bppRgb);
+            BitmapData bmd_Output = b_Out.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.ReadWrite, PixelFormat.Format24bppRgb);
+
+            byte[] neighbors = new byte[25];
+
+            int stride = bmd_Output.Stride;
+            int jump = stride - 3 * w;
+
+            unsafe
+            {
+                byte* ptr_Median = (byte*)((void*)bmd_Output.Scan0) + 2 * stride + 6;
+                byte* ptr_Input = (byte*)((void*)bmd_Input.Scan0) + 2 * stride + 6;
+
+                byte* ptr_11 = ptr_Input - 2 * stride - 6;
+                byte* ptr_12 = ptr_Input - 2 * stride - 3;
+                byte* ptr_13 = ptr_Input - 2 * stride - 0;
+                byte* ptr_14 = ptr_Input - 2 * stride + 3;
+                byte* ptr_15 = ptr_Input - 2 * stride + 6;
+
+                byte* ptr_21 = ptr_Input - 1 * stride - 6;
+                byte* ptr_22 = ptr_Input - 1 * stride - 3;
+                byte* ptr_23 = ptr_Input - 1 * stride - 0;
+                byte* ptr_24 = ptr_Input - 1 * stride + 3;
+                byte* ptr_25 = ptr_Input - 1 * stride + 6;
+
+                byte* ptr_31 = ptr_Input - 0 * stride - 6;
+                byte* ptr_32 = ptr_Input - 0 * stride - 3;
+                byte* ptr_33 = ptr_Input - 0 * stride - 0;
+                byte* ptr_34 = ptr_Input - 0 * stride + 3;
+                byte* ptr_35 = ptr_Input - 0 * stride + 6;
+
+                byte* ptr_41 = ptr_Input + 1 * stride - 6;
+                byte* ptr_42 = ptr_Input + 1 * stride - 3;
+                byte* ptr_43 = ptr_Input + 1 * stride - 0;
+                byte* ptr_44 = ptr_Input + 1 * stride + 3;
+                byte* ptr_45 = ptr_Input + 1 * stride + 6;
+
+                byte* ptr_51 = ptr_Input + 2 * stride - 6;
+                byte* ptr_52 = ptr_Input + 2 * stride - 3;
+                byte* ptr_53 = ptr_Input + 2 * stride - 0;
+                byte* ptr_54 = ptr_Input + 2 * stride + 3;
+                byte* ptr_55 = ptr_Input + 2 * stride + 6;
+
+                for (int y = 2; y < h - 2; y++)
+                {
+                    for (int x = 2; x < w - 2; x++)
+                    {
+                        for (int k = 0; k < 3; k++)
+                        {
+                            neighbors[0] = *ptr_11;
+                            neighbors[1] = *ptr_12;
+                            neighbors[2] = *ptr_13;
+                            neighbors[3] = *ptr_14;
+                            neighbors[4] = *ptr_15;
+
+                            neighbors[5] = *ptr_21;
+                            neighbors[6] = *ptr_22;
+                            neighbors[7] = *ptr_23;
+                            neighbors[8] = *ptr_24;
+                            neighbors[9] = *ptr_25;
+
+                            neighbors[10] = *ptr_31;
+                            neighbors[11] = *ptr_32;
+                            neighbors[12] = *ptr_33;
+                            neighbors[13] = *ptr_34;
+                            neighbors[14] = *ptr_35;
+
+                            neighbors[15] = *ptr_41;
+                            neighbors[16] = *ptr_42;
+                            neighbors[17] = *ptr_43;
+                            neighbors[18] = *ptr_44;
+                            neighbors[19] = *ptr_45;
+
+                            neighbors[20] = *ptr_51;
+                            neighbors[21] = *ptr_52;
+                            neighbors[22] = *ptr_53;
+                            neighbors[23] = *ptr_54;
+                            neighbors[24] = *ptr_55;
+
+
+                            Sort(neighbors);
+
+                            *ptr_Median = neighbors[13]; // Median
+
+                            ptr_11++;
+                            ptr_12++;
+                            ptr_13++;
+                            ptr_14++;
+                            ptr_15++;
+
+                            ptr_21++;
+                            ptr_22++;
+                            ptr_23++;
+                            ptr_24++;
+                            ptr_25++;
+
+                            ptr_31++;
+                            ptr_32++;
+                            ptr_33++;
+                            ptr_34++;
+                            ptr_35++;
+
+                            ptr_41++;
+                            ptr_42++;
+                            ptr_43++;
+                            ptr_44++;
+                            ptr_45++;
+
+                            ptr_51++;
+                            ptr_52++;
+                            ptr_53++;
+                            ptr_54++;
+                            ptr_55++;
+
+                            ptr_Median++;
+
+                        }//k
+                    }//x
+
+                    ptr_11 += 9 + jump;
+                    ptr_12 += 9 + jump;
+                    ptr_13 += 9 + jump;
+                    ptr_14 += 9 + jump;
+                    ptr_15 += 9 + jump;
+
+                    ptr_21 += 9 + jump;
+                    ptr_22 += 9 + jump;
+                    ptr_23 += 9 + jump;
+                    ptr_24 += 9 + jump;
+                    ptr_25 += 9 + jump;
+
+                    ptr_31 += 9 + jump;
+                    ptr_32 += 9 + jump;
+                    ptr_33 += 9 + jump;
+                    ptr_34 += 9 + jump;
+                    ptr_35 += 9 + jump;
+
+                    ptr_41 += 9 + jump;
+                    ptr_42 += 9 + jump;
+                    ptr_43 += 9 + jump;
+                    ptr_44 += 9 + jump;
+                    ptr_45 += 9 + jump;
+
+                    ptr_51 += 9 + jump;
+                    ptr_52 += 9 + jump;
+                    ptr_53 += 9 + jump;
+                    ptr_54 += 9 + jump;
+                    ptr_55 += 9 + jump;
+
+                    ptr_Median += 9 + jump;
+
+                }//y      
+
+                b_In.UnlockBits(bmd_Input);
+                b_Out.UnlockBits(bmd_Output);
+
+            }//Unsafe
+
+            return b_Out;
+        }
+
+        public Bitmap Apply_RGB_LUT(Bitmap b_In, byte[] lut_R, byte[] lut_G, byte[] lut_B)
+        {
+            int w = b_In.Width;
+            int h = b_In.Height;
+
+            Bitmap b_Out = new Bitmap(w, h, PixelFormat.Format24bppRgb);
+
+            BitmapData bmd_In = b_In.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.ReadOnly, PixelFormat.Format24bppRgb);
+            BitmapData bmd_Out = b_Out.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.ReadWrite, PixelFormat.Format24bppRgb);
+
+            int stride = bmd_In.Stride;
+            int jump = stride - 3 * w;
+            unsafe
+            {
+                byte* ptr_In = (byte*)((void*)bmd_In.Scan0);
+                byte* ptr_Out = (byte*)((void*)bmd_Out.Scan0);
+
+                // Process          
+
+                for (int y = 0; y < h; y++)
+                {
+                    for (int x = 0; x < w; x++)
+                    {
+
+                        // Apply LUT
+
+                        *(ptr_Out + 0) = lut_B[*(ptr_In + 0)];
+                        *(ptr_Out + 1) = lut_G[*(ptr_In + 1)];
+                        *(ptr_Out + 2) = lut_R[*(ptr_In + 2)];
+
+
+
+                        ptr_Out += 3;
+                        ptr_In += 3;
+                    }
+
+                    ptr_Out += jump;
+                    ptr_In += jump;
+                }
+
+            }
+
+            b_In.UnlockBits(bmd_In);
+            b_Out.UnlockBits(bmd_Out);
+
+            return b_Out;
+        }
+
+        public Bitmap Apply_LUT(Bitmap b_In, byte[] lut)
+        {
+            int w = b_In.Width;
+            int h = b_In.Height;
+
+            Bitmap b_Out = new Bitmap(w, h, PixelFormat.Format24bppRgb);
+
+            BitmapData bmd_In = b_In.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.ReadOnly, PixelFormat.Format24bppRgb);
+            BitmapData bmd_Out = b_Out.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.ReadWrite, PixelFormat.Format24bppRgb);
+
+            int stride = bmd_In.Stride;
+            int jump = stride - 3 * w;
+            unsafe
+            {
+                byte* ptr_In = (byte*)((void*)bmd_In.Scan0);
+                byte* ptr_Out = (byte*)((void*)bmd_Out.Scan0);
+
+                // Process          
+
+                for (int y = 0; y < h; y++)
+                {
+                    for (int x = 0; x < w; x++)
+                    {
+
+                        // Apply LUT
+
+                        *(ptr_Out + 0) = lut[*(ptr_In + 0)];
+                        *(ptr_Out + 1) = lut[*(ptr_In + 1)];
+                        *(ptr_Out + 2) = lut[*(ptr_In + 2)];
+
+
+                        ptr_Out += 3;
+                        ptr_In += 3;
+                    }
+
+                    ptr_Out += jump;
+                    ptr_In += jump;
+                }
+
+            }
+
+            b_In.UnlockBits(bmd_In);
+            b_Out.UnlockBits(bmd_Out);
+
+            return b_Out;
+        }
+
+        public Bitmap Apply_Inversion(Bitmap b_In)
+        {
+            //Construct LUT
+            byte[] LUT = new byte[256];
+            double level = 0;
+
+            for (int k = 0; k < 256; k++)
+            {
+
+                level = 255 - k;
+
+                // Bound Level
+                if (level < 0)
+                {
+                    level = 0;
+                }
+
+                if (level > 255)
+                {
+                    level = 255;
+                }
+
+                LUT[k] = (byte)level;
+
+            }
+
+            Bitmap b_Out = Apply_LUT(b_In, LUT);
+            return b_Out;
+        }
+
+        public void Start_Thermal_Processeing(double Distance)
+        {
+
+            var pdt = new PersianDateTime(DateTime.Now);
+            string frameName_Thermal = pdt.Year + pdt.Month.ToString("00") + pdt.Day.ToString("00") + "_" +
+                               pdt.Hour.ToString("00") + pdt.Minute.ToString("00") + pdt.Second.ToString("00") +
+                                "_" + Distance.ToString("00") + "_" + "TCam%d_06.jpeg";
+            string project_Name_Folder = pdt.Year + "," + pdt.Month.ToString("00") + "," + pdt.Day.ToString("00");
+            string thermal_Image_Dir = "C:\\Ali Seyedmomeni\\Thermal Camera\\Saved Pictures";
+            string fault_Images_Path = "C:\\Ali Seyedmomeni\\Thermal Camera\\fault images";
+
+            //while (true)
+            //{
+            string[] input_Thermal_Images_Path = Directory.GetFiles(thermal_Image_Dir);
+            string[] output_Thermal_Images_Path = Directory.GetFiles(thermal_Image_Dir);
+
+            Bitmap[] input_Thermal_Images_Bmp = new Bitmap[input_Thermal_Images_Path.Length];
+
+            for (int i = 0; i < input_Thermal_Images_Path.Length; i++)
+            {
+                try
+                {
+                    input_Thermal_Images_Bmp[i] = (Bitmap)Bitmap.FromFile(input_Thermal_Images_Path[i]);
+                }
+                catch (Exception)
+                {
+
+                    throw;
+                }
+
+                //pictureBox_Test.Image = Image_Lib.Apply_Thermal_Processing_5X5((Bitmap)pictureBox_Test.Image);
+                //Bitmap bnw_Thermal_Output = Apply_Threshold(input_Thermal_Images_Bmp[i], 235);
+
+                Bitmap gray_Scale_Thermal_Output = Apply_GrayScale(input_Thermal_Images_Bmp[i]);
+                //Bitmap threshold = Apply_Threshold(gray_Scale_Thermal_Output, 220);
+
+                gray_Scale_Thermal_Output = Find_3_brightest_Area(gray_Scale_Thermal_Output);
+
+                Graphics gfx = Graphics.FromImage(input_Thermal_Images_Bmp[i]);
+                Pen[] rectangle_Pen = new Pen[3];
+                rectangle_Pen[0]= new Pen(Color.Red, 2.0F);
+                rectangle_Pen[1]= new Pen(Color.Orange, 2.0F);
+                rectangle_Pen[2]= new Pen(Color.Green, 2.0F);
+
+                System.Drawing.Rectangle rect = new System.Drawing.Rectangle(0, 0, 60, 60);
+
+                //int bounding_Point_X = entry_Points_Thermal.Min() * 20; //because of drop sampling 
+                //int bounding_Point_Y = start_Vertical_Thermal * 20; //because of drop sampling 
+
+                //int bounding_Box_W = Math.Abs(exit_Points_thermal.Max() - entry_Points_Thermal.Min()) * 20;
+                //int bounding_Box_H = Math.Abs(end_Vertical_Thermal - start_Vertical_Thermal) * 20;
+
+                //int min_X = 640;
+                //int min_Y = 480;
+                for (int j = 0; j < 3; j++)
+                {
+                    //if (three_Brightest[j].X < min_X)
+                    //{
+                    //    min_X = three_Brightest[j].X;
+                    //}
+                    //if (three_Brightest[j].Y < min_Y)
+                    //{
+                    //    min_Y = three_Brightest[j].Y;
+                    //}
+
+                    rect = new System.Drawing.Rectangle((three_Brightest[j].X * 10) - 30, (three_Brightest[j].Y * 10) - 30, 60, 60);
+                    gfx.DrawRectangle(rectangle_Pen[j], rect);
+                }
+
+                
+                gfx.Dispose();
+
+
+                if (input_Thermal_Images_Path[i].Length == 52)
+                {
+                    output_Thermal_Images_Path[i] = input_Thermal_Images_Path[i].Substring(0, input_Thermal_Images_Path[i].Length - 11);
+                }
+                else if (input_Thermal_Images_Path[i].Length == 53)
+                {
+                    output_Thermal_Images_Path[i] = input_Thermal_Images_Path[i].Substring(0, input_Thermal_Images_Path[i].Length - 12);
+                }
+                else
+                {
+                    output_Thermal_Images_Path[i] = input_Thermal_Images_Path[i].Substring(0, input_Thermal_Images_Path[i].Length - 32);
+                }
+
+                input_Thermal_Images_Bmp[i].Save(fault_Images_Path + "\\" + i + ".jpeg");
+
+                input_Thermal_Images_Bmp[i].Dispose();
+                gray_Scale_Thermal_Output.Dispose();
+                //threshold.Dispose();
+
+                max_Brightness = 0;                
+
+            }
+
+            input_Thermal_Images_Path = new string[10];
+            output_Thermal_Images_Path = new string[10];
+            input_Thermal_Images_Bmp = new Bitmap[10];
+
+        }
+
+        public Bitmap Apply_Threshold(Bitmap b_In, double thershold)
+        {
+
+            int w = b_In.Width;
+            int h = b_In.Height;
+
+            Bitmap b_Out = (Bitmap)b_In.Clone();
+            //b_Out = new Bitmap(w, h, PixelFormat.Format24bppRgb);
+
+            BitmapData bmd_In = b_In.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.ReadOnly, PixelFormat.Format24bppRgb);
+            BitmapData bmd_Out = b_Out.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.ReadWrite, PixelFormat.Format24bppRgb);
+
+            int stride = bmd_In.Stride;
+            int jump = stride - 3 * w;
+
+            unsafe
+            {
+                byte* ptr_In = (byte*)((void*)bmd_In.Scan0);
+                byte* ptr_Out = (byte*)((void*)bmd_Out.Scan0);
+
+                // Process
+                byte threshold_Value = (byte)(thershold);
+                //byte b = *(ptr_In + 0);
+                //byte g = *(ptr_In + 1);
+                //byte r = *(ptr_In + 2);
+
+                for (int y = 0; y < h; y++)
+                {
+                    for (int x = 0; x < w; x++)
+                    {
+
+                        // Process Blue  
+
+                        byte b = *(ptr_In + 0);
+
+                        // Process Green    
+
+                        byte g = *(ptr_In + 1);
+
+                        // Process Red    
+
+                        byte r = *(ptr_In + 2);
+
+                        float brightness = (float)(0.3 * r + 0.59 * g + 0.11 * b);
+
+                        if (brightness > threshold_Value)
+                        {
+                            *(ptr_Out + 0) = (byte)brightness; //B
+                            *(ptr_Out + 1) = (byte)brightness; //G
+                            *(ptr_Out + 2) = (byte)brightness; //R
+                        }
+                        else
+                        {
+                            *(ptr_Out + 0) = 0; //B
+                            *(ptr_Out + 1) = 0; //G
+                            *(ptr_Out + 2) = 0; //R
+                        }
+
+                        ptr_Out += 3;
+                        ptr_In += 3;
+                    }
+
+                    ptr_Out += jump;
+                    ptr_In += jump;
+                }
+
+            }
+
+            b_In.UnlockBits(bmd_In);
+            b_Out.UnlockBits(bmd_Out);
+
+            //b_Out = new Bitmap(b_Out, new Size(32, 24));
+
+            return b_Out;
+        }
+
+        public Bitmap Apply_GrayScale(Bitmap b_In)
+        {
+
+            int w = b_In.Width;
+            int h = b_In.Height;
+
+            Bitmap b_Out = (Bitmap)b_In.Clone();
+            //b_Out = new Bitmap(w, h, PixelFormat.Format24bppRgb);
+
+            BitmapData bmd_In = b_In.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.ReadOnly, PixelFormat.Format24bppRgb);
+            BitmapData bmd_Out = b_Out.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.ReadWrite, PixelFormat.Format24bppRgb);
+
+            int stride = bmd_In.Stride;
+            int jump = stride - 3 * w;
+
+            unsafe
+            {
+                byte* ptr_In = (byte*)((void*)bmd_In.Scan0);
+                byte* ptr_Out = (byte*)((void*)bmd_Out.Scan0);
+
+                // Process
+                
+                //byte b = *(ptr_In + 0);
+                //byte g = *(ptr_In + 1);
+                //byte r = *(ptr_In + 2);
+
+                for (int y = 0; y < h; y++)
+                {
+                    for (int x = 0; x < w; x++)
+                    {
+
+                        // Process Blue  
+
+                        byte b = *(ptr_In + 0);
+
+                        // Process Green    
+
+                        byte g = *(ptr_In + 1);
+
+                        // Process Red    
+
+                        byte r = *(ptr_In + 2);
+
+                        float brightness = (float)(0.3 * r + 0.59 * g + 0.11 * b); //(r +  g +  b) / 3
+                        //brightness = brightness + 127; // Set Offset
+
+
+                        if (brightness > 255)
+                        {
+                            *(ptr_Out + 0) = (byte)255; //B
+                            *(ptr_Out + 1) = (byte)255; //G
+                            *(ptr_Out + 2) = (byte)255; //R
+                        }
+                        else
+                        {
+                            *(ptr_Out + 0) = (byte)(brightness); //B
+                            *(ptr_Out + 1) = (byte)(brightness); //G
+                            *(ptr_Out + 2) = (byte)(brightness); //R
+                        }                                                    
+
+                        ptr_Out += 3;
+                        ptr_In += 3;
+                    }
+
+                    ptr_Out += jump;
+                    ptr_In += jump;
+                }
+
+            }
+
+            b_In.UnlockBits(bmd_In);
+            b_Out.UnlockBits(bmd_Out);
+
+            //b_Out = new Bitmap(b_Out, new Size(64, 48));
+
+            return b_Out;
+        }        
+
+        public Bitmap Apply_Integrity(Bitmap b_In)
+        {
+            int w = b_In.Width;
+            int h = b_In.Height;
+             //mean squre error  
+
+            Bitmap b_Out = (Bitmap)b_In.Clone();
+
+            BitmapData bmd_In = b_In.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.ReadOnly, PixelFormat.Format24bppRgb);
+            BitmapData bmd_Out = b_Out.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.ReadWrite, PixelFormat.Format24bppRgb);
+
+            Graphics gfx = Graphics.FromImage(b_Out);
+            Pen line_Pen = new Pen(Color.FromArgb(100, Color.Tomato), 3.0F);
+            Pen line_Pen_Test = new Pen(Color.FromArgb(80, Color.Yellow), 1.0F);
+
+            System.Drawing.Point[] poly_Point_Array = new System.Drawing.Point[4];
+
+            int stride = bmd_In.Stride;
+            int jump = stride - 3 * w;
+            int pxl_Num_Upper_trapezium = 0;
+            int pxl_Num_Under_trapezium = 0;
+            
+
+            unsafe
+            {
+                byte* ptr_In = (byte*)((void*)bmd_In.Scan0);
+                byte* ptr_Out = (byte*)((void*)bmd_Out.Scan0);
+
+                if (start_Point_Left.X > 50)
+                {
+                    start_Point_Left.X = start_Point_Left.X / 10;
+                    start_Point_Left.Y = start_Point_Left.Y / 10;
+
+                    end_Point_Left.X = end_Point_Left.X / 10;
+                    end_Point_Left.Y = end_Point_Left.Y / 10;
+
+                    start_Point_Right.X = start_Point_Right.X / 10;
+                    start_Point_Right.Y = start_Point_Right.Y / 10;
+
+                    end_Point_Right.X = end_Point_Right.X / 10;
+                    end_Point_Right.Y = end_Point_Right.Y / 10;
+                }
+                
+
+                //switch x <=> y
+                //System.Drawing.Point temp = new System.Drawing.Point();
+
+                //temp.X = start_Point_Left.X;
+                //temp.Y = start_Point_Left.Y;
+
+                //start_Point_Left.X = temp.Y;
+                //start_Point_Left.Y = temp.X;
+                //////////////
+                //temp.X = end_Point_Left.X;
+                //temp.Y = end_Point_Left.Y;
+
+                //end_Point_Left.X = temp.Y;
+                //end_Point_Left.Y = temp.X;
+                //////////////
+                //temp.X = start_Point_Right.X;
+                //temp.Y = start_Point_Right.Y;
+
+                //start_Point_Right.X = temp.Y;
+                //start_Point_Right.Y = temp.X;
+                //////////////
+                //temp.X = end_Point_Right.X;
+                //temp.Y = end_Point_Right.Y;
+
+                //end_Point_Right.X = temp.Y;
+                //end_Point_Right.Y = temp.X;
+
+                /////
+                for (int y = 0; y < h; y++)
+                {
+                    for (int x = 0; x < w; x++)
+                    {
+                        double f_Left_Line = x - a_Left_Line * y - (b_Left_Line/10);
+                        double f_right_Line = x - a_Right_Line * y - (b_Right_Line/10);
+
+                        byte b = *(ptr_In + 0);
+                        byte g = *(ptr_In + 1);
+                        byte r = *(ptr_In + 2);
+
+                        float brightness = (float)((r + g + b) / 3);
+
+                        if (f_right_Line < 0 && f_Left_Line > 0 && y > 15 && y < 50) //&& f_right_Line < 0 && y > 24
+                        {
+                            mse_Integrity += Math.Pow(brightness - 127, 2);
+                            pxl_Num_Upper_trapezium++;
+
+                            //*(ptr_Out + 0) = (byte)255;
+                            //*(ptr_Out + 1) = (byte)0;
+                            //*(ptr_Out + 2) = (byte)0;
+
+                        }
+                        if (f_right_Line < 0 && f_Left_Line > 0 && y >= 50 && y < 86)
+                        {
+                            mse_Integrity_Under += Math.Pow(brightness - 127, 2);
+                            pxl_Num_Under_trapezium++;
+
+                            //*(ptr_Out + 0) = (byte)0;
+                            //*(ptr_Out + 1) = (byte)0;
+                            //*(ptr_Out + 2) = (byte)255;
+                        }
+                        
+
+                        ptr_In += 3;
+                        ptr_Out += 3;
+                    }
+
+                    ptr_In += jump;
+                    ptr_Out += jump;
+                }
+
+            }
+
+            b_In.UnlockBits(bmd_In);
+            b_Out.UnlockBits(bmd_Out);
+            //////
+
+            gfx.DrawLine(line_Pen, start_Point_Left, end_Point_Left);
+            gfx.DrawLine(line_Pen, start_Point_Right, end_Point_Right);            
+
+            mse_Integrity /= pxl_Num_Upper_trapezium;
+            mse_Integrity_Under /= pxl_Num_Under_trapezium;
+            mse_Integrity = Math.Sqrt(mse_Integrity);
+            mse_Integrity_Under = Math.Sqrt(mse_Integrity_Under);
+
+            return b_Out;
+        }
+
+        public Bitmap Find_brightest_Area(Bitmap b_In)
+        {
+
+            int w = b_In.Width;
+            int h = b_In.Height;
+
+            entry_Points_Thermal = new int[h];
+            exit_Points_thermal = new int[h];
+
+            Bitmap b_Out = (Bitmap)b_In.Clone();
+            //b_Out = new Bitmap(w, h, PixelFormat.Format24bppRgb);
+
+            BitmapData bmd_In = b_In.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.ReadOnly, PixelFormat.Format24bppRgb);
+            BitmapData bmd_Out = b_Out.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.ReadWrite, PixelFormat.Format24bppRgb);
+
+            int stride = bmd_In.Stride;
+            int jump = stride - 3 * w;
+
+            unsafe
+            {
+                byte* ptr_In = (byte*)((void*)bmd_In.Scan0);
+                byte* ptr_Out = (byte*)((void*)bmd_Out.Scan0);          
+
+                for (int y = 0; y < h; y++)
+                {
+                    for (int x = 1; x < w-1; x++)
+                    {
+                      
+                        byte b = *(ptr_In + 0);
+                        byte g = *(ptr_In + 1);                           
+                        byte r = *(ptr_In + 2);
+
+                        //p = previous pointer
+                        byte bp = *(ptr_In - 3 + 0);
+                        byte gp = *(ptr_In - 3 + 1);
+                        byte rp = *(ptr_In - 3 + 2);
+
+                        //n = next pointer
+                        byte bn = *(ptr_In + 3 + 0);
+                        byte gn = *(ptr_In + 3 + 1);
+                        byte rn = *(ptr_In + 3 + 2);                                               
+
+                        float brightness = (float)((r + g + b)/3);
+                        float brightness_Prv = (float)((rp + gp + bp)/3);
+                        float brightness_Nxt = (float)((rn + gn + bn)/3);
+
+                        if (brightness_Nxt - brightness > 30 && brightness > 150) //230 = threshold exp
+                        {
+                            //if (y>1) // because of header of thermal image 
+                            //{                                
+                            entry_Points_Thermal[y] = x;
+                            //}
+                        }
+
+                        if (brightness_Prv - brightness > 30 && brightness > 150) //230 = threshold exp
+                        {
+                                                            
+                            exit_Points_thermal[y] = x;
+                          
+                        }                 
+
+                        ptr_Out += 3;
+                        ptr_In += 3;
+                    }
+
+                    ptr_Out += jump;
+                    ptr_In += jump;
+                }
+
+                for (int i = 1; i < h; i++)
+                {
+                    if (entry_Points_Thermal[i] != 0)
+                    {
+                        start_Vertical_Thermal = i;
+                        break;
+                    }
+                }
+
+                for (int i = h-1; i >= 0; i--)
+                {
+                    if (entry_Points_Thermal[i] != 0)
+                    {
+                        end_Vertical_Thermal = i;
+                        break;
+                    }
+                }
+
+            }
+
+            b_In.UnlockBits(bmd_In);
+            b_Out.UnlockBits(bmd_Out);         
+
+            return b_Out;
+        }
+
+        public Bitmap Find_3_brightest_Area(Bitmap b_In)
+        {
+
+            int w = b_In.Width;
+            int h = b_In.Height;
+
+            int[,] brightness_Array = new int[w, h]; 
+
+            Bitmap b_Out = (Bitmap)b_In.Clone();
+            //b_Out = new Bitmap(w, h, PixelFormat.Format24bppRgb);
+
+            BitmapData bmd_In = b_In.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.ReadOnly, PixelFormat.Format24bppRgb);
+            BitmapData bmd_Out = b_Out.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.ReadWrite, PixelFormat.Format24bppRgb);
+
+            int stride = bmd_In.Stride;
+            int jump = stride - 3 * w;
+
+            unsafe
+            {
+                byte* ptr_In = (byte*)((void*)bmd_In.Scan0);
+                byte* ptr_Out = (byte*)((void*)bmd_Out.Scan0);
+
+                for (int y = 0; y < h; y++)
+                {
+                    for (int x = 0; x < w ; x++)
+                    {
+                        byte b = *(ptr_In + 0);
+                        byte g = *(ptr_In + 1);
+                        byte r = *(ptr_In + 2);
+                        
+                        float brightness = (float)((r + g + b) / 3);
+
+                        brightness_Array[x, y] = (int)brightness;
+
+                        ptr_Out += 3;
+                        ptr_In += 3;
+                    }
+
+                    ptr_Out += jump;
+                    ptr_In += jump;
+                }                
+
+            }
+
+            b_In.UnlockBits(bmd_In);
+            b_Out.UnlockBits(bmd_Out);
+
+            
+            for (int i = 0; i < 3; i++)
+            {
+                max_Brightness = 0;
+
+                for (int y = 0; y < h; y++)
+                {
+                    for (int x = 0; x < w; x++)
+                    {
+
+                        if (brightness_Array[x, y] > max_Brightness)
+                        {
+                            max_Brightness = brightness_Array[x, y];
+                            three_Brightest[i].X = x;
+                            three_Brightest[i].Y = y;
+                            
+                        }
+
+                    }
+                }
+
+                //max_Brightness = 0;
+                brightness_Array[three_Brightest[i].X, three_Brightest[i].Y] = 0;
+
+            }
+
+            return b_Out;
+        }
+
+        public Bitmap Apply_Convolution_Filter_3X3(Bitmap b_In, double[,] coefficients)
+        {
+            int w = b_In.Width;
+            int h = b_In.Height;
+
+            Bitmap b_Out = (Bitmap)b_In.Clone();
+
+            BitmapData bmd_Input = b_In.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.ReadWrite, PixelFormat.Format24bppRgb);
+            BitmapData bmd_Output = b_Out.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.ReadWrite, PixelFormat.Format24bppRgb);
+
+            int stride = bmd_Output.Stride;
+            int jump = stride - 3 * w;
+
+            unsafe
+            {
+                byte* ptr_Input = (byte*)((void*)bmd_Input.Scan0) + stride + 3;
+
+                byte* ptr_Output = (byte*)((void*)bmd_Output.Scan0) + stride + 3;
+
+                byte* ptr_Output_22 = ptr_Output - 1 * stride - 3;
+                byte* ptr_Output_21 = ptr_Output - 1 * stride - 0;
+                byte* ptr_Output_12 = ptr_Output - 0 * stride - 3;
+
+                double alpha = 0.8;
+                double pixel_Value = 0;
+
+                double[] line_R_Buf_Prev = new double[w];
+                double[] line_G_Buf_Prev = new double[w];
+                double[] line_B_Buf_Prev = new double[w];
+
+                double[] line_R_Buf_Now = new double[w];
+                double[] line_G_Buf_Now = new double[w];
+                double[] line_B_Buf_Now = new double[w];
+
+                for (int i = 0; i < w; i++)
+                {
+                    line_R_Buf_Prev[i] = *(ptr_Input + 2);
+                    line_G_Buf_Prev[i] = *(ptr_Input + 1);
+                    line_B_Buf_Prev[i] = *(ptr_Input + 0);
+
+                    ptr_Input += 3;
+                }
+
+                ptr_Input += jump;
+
+                line_R_Buf_Now[0] = *(ptr_Input + 2);
+                line_G_Buf_Now[0] = *(ptr_Input + 1);
+                line_B_Buf_Now[0] = *(ptr_Input + 0);
+
+                ptr_Input += 3;
+
+
+
+                for (int y = 1; y < h - 2; y++)
+                {
+                    for (int x = 1; x < w - 1; x++)
+                    {
+
+                        line_B_Buf_Now[x] = alpha * (line_B_Buf_Prev[x] + line_B_Buf_Now[x - 1] + line_B_Buf_Prev[x - 1] + line_B_Buf_Prev[x + 1]) / 4 +
+                                            (1 - alpha) * (*ptr_Input);
+                        pixel_Value = line_B_Buf_Now[x];
+                        if (pixel_Value < 0)
+                        {
+                            pixel_Value = 0;
+                        }
+                        if (pixel_Value > 255)
+                        {
+                            pixel_Value = 255;
+                        }
+                        *ptr_Output = (byte)(pixel_Value);
+
+                        ptr_Input++;
+                        ptr_Output++;
+
+
+                        line_G_Buf_Now[x] = alpha * (line_G_Buf_Prev[x] + line_G_Buf_Now[x - 1] + line_G_Buf_Prev[x - 1] + line_G_Buf_Prev[x + 1]) / 4 +
+                                            (1 - alpha) * (*ptr_Input);
+
+                        pixel_Value = line_G_Buf_Now[x];
+                        if (pixel_Value < 0)
+                        {
+                            pixel_Value = 0;
+                        }
+                        if (pixel_Value > 255)
+                        {
+                            pixel_Value = 255;
+                        }
+                        *ptr_Output = (byte)(pixel_Value);
+
+                        ptr_Input++;
+                        ptr_Output++;
+
+
+                        line_R_Buf_Now[x] = alpha * (line_R_Buf_Prev[x] + line_R_Buf_Now[x - 1] + line_R_Buf_Prev[x - 1] + line_R_Buf_Prev[x + 1]) / 4 +
+                                            (1 - alpha) * (*ptr_Input);
+
+                        pixel_Value = line_R_Buf_Now[x];
+                        if (pixel_Value < 0)
+                        {
+                            pixel_Value = 0;
+                        }
+                        if (pixel_Value > 255)
+                        {
+                            pixel_Value = 255;
+                        }
+                        *ptr_Output = (byte)(pixel_Value);
+
+                        ptr_Input++;
+                        ptr_Output++;
+
+                    }//x
+
+                    ptr_Input += 3 + jump;
+                    ptr_Output += 3 + jump;
+
+                    for (int i = 0; i < w - 1; i++)
+                    {
+                        line_R_Buf_Prev[i] = line_R_Buf_Now[i];
+                        line_G_Buf_Prev[i] = line_G_Buf_Now[i];
+                        line_B_Buf_Prev[i] = line_B_Buf_Now[i];
+                    }
+
+                    try
+                    {
+                        line_R_Buf_Now[0] = *(ptr_Input + 2);
+                        line_G_Buf_Now[0] = *(ptr_Input + 1);
+                        line_B_Buf_Now[0] = *(ptr_Input + 0);
+
+                        ptr_Input += 3;
+                        ptr_Output += 3;
+                    }
+                    catch (Exception)
+                    {
+
+                        MessageBox.Show("Attempted to read or write protected memory");
+
+                    }
+
+
+
+
+
+
+                }//y
+
+                b_In.UnlockBits(bmd_Input);
+                b_Out.UnlockBits(bmd_Output);
+            }//unsafe
+
+            return b_Out;
+
+        }
+
+        public Bitmap Apply_Convolution_Filter_5X5(Bitmap b_In, double[,] coefficients)
+        {
+            int w = b_In.Width;
+            int h = b_In.Height;
+
+            Bitmap b_Out = (Bitmap)b_In.Clone();
+
+            BitmapData bmd_Input = b_In.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.ReadWrite, PixelFormat.Format24bppRgb);
+            BitmapData bmd_Output = b_Out.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.ReadWrite, PixelFormat.Format24bppRgb);
+
+            int stride = bmd_Output.Stride;
+            int jump = stride - 3 * w;
+
+            // Spacial Filter
+            double a11 = coefficients[0, 0], a12 = coefficients[0, 1], a13 = coefficients[0, 2], a14 = coefficients[0, 3], a15 = coefficients[0, 4];
+            double a21 = coefficients[1, 0], a22 = coefficients[1, 1], a23 = coefficients[1, 2], a24 = coefficients[1, 3], a25 = coefficients[1, 4];
+            double a31 = coefficients[2, 0], a32 = coefficients[2, 1], a33 = coefficients[2, 2], a34 = coefficients[2, 3], a35 = coefficients[2, 4];
+            double a41 = coefficients[3, 0], a42 = coefficients[3, 1], a43 = coefficients[3, 2], a44 = coefficients[3, 3], a45 = coefficients[3, 4];
+            double a51 = coefficients[4, 0], a52 = coefficients[4, 1], a53 = coefficients[4, 2], a54 = coefficients[4, 3], a55 = coefficients[4, 4];
+
+            unsafe
+            {
+                byte* ptr_Filtered = (byte*)((void*)bmd_Output.Scan0) + 2 * stride + 6;
+                byte* ptr_Input = (byte*)((void*)bmd_Input.Scan0) + 2 * stride + 6;
+
+                byte* ptr_11 = ptr_Input - 2 * stride - 6;
+                byte* ptr_12 = ptr_Input - 2 * stride - 3;
+                byte* ptr_13 = ptr_Input - 2 * stride - 0;
+                byte* ptr_14 = ptr_Input - 2 * stride + 3;
+                byte* ptr_15 = ptr_Input - 2 * stride + 6;
+
+                byte* ptr_21 = ptr_Input - 1 * stride - 6;
+                byte* ptr_22 = ptr_Input - 1 * stride - 3;
+                byte* ptr_23 = ptr_Input - 1 * stride - 0;
+                byte* ptr_24 = ptr_Input - 1 * stride + 3;
+                byte* ptr_25 = ptr_Input - 1 * stride + 6;
+
+                byte* ptr_31 = ptr_Input - 0 * stride - 6;
+                byte* ptr_32 = ptr_Input - 0 * stride - 3;
+                byte* ptr_33 = ptr_Input - 0 * stride - 0;
+                byte* ptr_34 = ptr_Input - 0 * stride + 3;
+                byte* ptr_35 = ptr_Input - 0 * stride + 6;
+
+                byte* ptr_41 = ptr_Input + 1 * stride - 6;
+                byte* ptr_42 = ptr_Input + 1 * stride - 3;
+                byte* ptr_43 = ptr_Input + 1 * stride - 0;
+                byte* ptr_44 = ptr_Input + 1 * stride + 3;
+                byte* ptr_45 = ptr_Input + 1 * stride + 6;
+
+                byte* ptr_51 = ptr_Input + 2 * stride - 6;
+                byte* ptr_52 = ptr_Input + 2 * stride - 3;
+                byte* ptr_53 = ptr_Input + 2 * stride - 0;
+                byte* ptr_54 = ptr_Input + 2 * stride + 3;
+                byte* ptr_55 = ptr_Input + 2 * stride + 6;
+
+                double pixel_Value = 0;
+
+                for (int y = 2; y < h - 2; y++)
+                {
+                    for (int x = 2; x < w - 2; x++)
+                    {
+                        for (int k = 0; k < 3; k++)
+                        {
+                            pixel_Value =   a11 * (*ptr_11) + a12 * (*ptr_12) + a13 * (*ptr_13) + a14 * (*ptr_14) + a15 * (*ptr_15) +
+                                            a21 * (*ptr_21) + a22 * (*ptr_22) + a23 * (*ptr_23) + a24 * (*ptr_24) + a25 * (*ptr_25) +
+                                            a31 * (*ptr_31) + a32 * (*ptr_32) + a33 * (*ptr_33) + a34 * (*ptr_34) + a35 * (*ptr_35) +
+                                            a41 * (*ptr_41) + a42 * (*ptr_42) + a43 * (*ptr_43) + a44 * (*ptr_44) + a45 * (*ptr_45) +
+                                            a51 * (*ptr_51) + a52 * (*ptr_52) + a53 * (*ptr_53) + a54 * (*ptr_54) + a55 * (*ptr_55);
+
+                            pixel_Value = pixel_Value + 127;//ofset
+
+                            if (pixel_Value < 0)
+                            {
+                                pixel_Value = 0;
+                            }
+                            if (pixel_Value > 255)
+                            {
+                                pixel_Value = 255;
+                            }
+
+                            *ptr_Filtered = (byte)(pixel_Value);
+
+                            ptr_11++;
+                            ptr_12++;
+                            ptr_13++;
+                            ptr_14++;
+                            ptr_15++;
+
+                            ptr_21++;
+                            ptr_22++;
+                            ptr_23++;
+                            ptr_24++;
+                            ptr_25++;
+
+                            ptr_31++;
+                            ptr_32++;
+                            ptr_33++;
+                            ptr_34++;
+                            ptr_35++;
+
+                            ptr_41++;
+                            ptr_42++;
+                            ptr_43++;
+                            ptr_44++;
+                            ptr_45++;
+
+                            ptr_51++;
+                            ptr_52++;
+                            ptr_53++;
+                            ptr_54++;
+                            ptr_55++;
+
+                            ptr_Filtered++;
+
+                        }//k
+                    }//x
+
+                    ptr_11 += 6 + jump + 6;
+                    ptr_12 += 6 + jump + 6;
+                    ptr_13 += 6 + jump + 6;
+                    ptr_14 += 6 + jump + 6;
+                    ptr_15 += 6 + jump + 6;
+                              
+                    ptr_21 += 6 + jump + 6;
+                    ptr_22 += 6 + jump + 6;
+                    ptr_23 += 6 + jump + 6;
+                    ptr_24 += 6 + jump + 6;
+                    ptr_25 += 6 + jump + 6;
+                              
+                    ptr_31 += 6 + jump + 6;
+                    ptr_32 += 6 + jump + 6;
+                    ptr_33 += 6 + jump + 6;
+                    ptr_34 += 6 + jump + 6;
+                    ptr_35 += 6 + jump + 6;
+                                       
+                    ptr_41 += 6 + jump + 6;
+                    ptr_42 += 6 + jump + 6;
+                    ptr_43 += 6 + jump + 6;
+                    ptr_44 += 6 + jump + 6;
+                    ptr_45 += 6 + jump + 6;
+                                       
+                    ptr_51 += 6 + jump + 6;
+                    ptr_52 += 6 + jump + 6;
+                    ptr_53 += 6 + jump + 6;
+                    ptr_54 += 6 + jump + 6;
+                    ptr_55 += 6 + jump + 6;
+
+                    ptr_Filtered += 6 + jump + 6;
+
+                }//y
+
+                b_In.UnlockBits(bmd_Input);
+                b_Out.UnlockBits(bmd_Output);
+
+            }//unsafe
+
+            return b_Out;
+
+        }
+
+        public Bitmap Apply_Highpass_Filter_3X3(Bitmap b_In, double[,] coefficients)
+        {
+            int w = b_In.Width;
+            int h = b_In.Height;
+
+            Bitmap b_Out = (Bitmap)b_In.Clone();
+
+            BitmapData bmd_Input = b_In.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.ReadWrite, PixelFormat.Format24bppRgb);
+            BitmapData bmd_Output = b_Out.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.ReadWrite, PixelFormat.Format24bppRgb);
+
+            int stride = bmd_Output.Stride;
+            int jump = stride - 3 * w;
+
+            // Spacial Filter
+            double a11 = coefficients[0, 0], a12 = coefficients[0, 1], a13 = coefficients[0, 2];
+            double a21 = coefficients[1, 0], a22 = coefficients[1, 1], a23 = coefficients[1, 2];
+            double a31 = coefficients[2, 0], a32 = coefficients[2, 1], a33 = coefficients[2, 2];
+            
+
+            unsafe
+            {
+                byte* ptr_Filtered = (byte*)((void*)bmd_Output.Scan0) + 1 * stride + 3;
+                byte* ptr_Input = (byte*)((void*)bmd_Input.Scan0) + 1 * stride + 3;
+
+                byte* ptr_11 = ptr_Input - 1 * stride - 3;
+                byte* ptr_12 = ptr_Input - 1 * stride - 0;
+                byte* ptr_13 = ptr_Input - 1 * stride + 3;
+                                
+                byte* ptr_21 = ptr_Input - 0 * stride - 3;
+                byte* ptr_22 = ptr_Input - 0 * stride - 0;
+                byte* ptr_23 = ptr_Input - 0 * stride + 3;
+                                
+                byte* ptr_31 = ptr_Input + 1 * stride - 3;
+                byte* ptr_32 = ptr_Input + 1 * stride - 0;
+                byte* ptr_33 = ptr_Input + 1 * stride + 3;               
+                                
+                                 
+                double pixel_Value = 0;
+
+                for (int y = 1; y < h - 1; y++)
+                {
+                    for (int x = 1; x < w - 1; x++)
+                    {
+                        for (int k = 0; k < 3; k++)
+                        {
+                            pixel_Value =   a11 * (*ptr_11) + a12 * (*ptr_12) + a13 * (*ptr_13) +
+                                            a21 * (*ptr_21) + a22 * (*ptr_22) + a23 * (*ptr_23) +
+                                            a31 * (*ptr_31) + a32 * (*ptr_32) + a33 * (*ptr_33);                                            ;
+
+                            pixel_Value = pixel_Value;//ofset+ 127
+
+                            if (pixel_Value < 0)
+                            {
+                                pixel_Value = 0;
+                            }
+                            if (pixel_Value > 255)
+                            {
+                                pixel_Value = 255;
+                            }
+
+                            *ptr_Filtered = (byte)(pixel_Value);
+
+                            ptr_11++;
+                            ptr_12++;
+                            ptr_13++;
+                                                           
+                            ptr_21++;
+                            ptr_22++;
+                            ptr_23++;
+                                                         
+                            ptr_31++;
+                            ptr_32++;
+                            ptr_33++;                                                                                                                                                                                                                                                                    
+                           
+                            ptr_Filtered++;
+
+                        }//k
+                    }//x
+
+                    ptr_11 += 3 + jump + 3;
+                    ptr_12 += 3 + jump + 3;
+                    ptr_13 += 3 + jump + 3;
+                    
+                    ptr_21 += 3 + jump + 3;
+                    ptr_22 += 3 + jump + 3;
+                    ptr_23 += 3 + jump + 3;
+                    
+                    ptr_31 += 3 + jump + 3;
+                    ptr_32 += 3 + jump + 3;
+                    ptr_33 += 3 + jump + 3;                                        
+                    
+
+                    ptr_Filtered += 3 + jump + 3;
+
+                }//y
+
+                b_In.UnlockBits(bmd_Input);
+                b_Out.UnlockBits(bmd_Output);
+
+            }//unsafe
+
+            return b_Out;
+
+        }
+
+        public Bitmap Apply_False_Color(Bitmap b_In, bool inversion_Mode)
+        {
+            int w = b_In.Width;
+            int h = b_In.Height;
+
+            Bitmap b_Out = (Bitmap)b_In.Clone();
+
+            BitmapData bmd_In = b_In.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.ReadOnly, PixelFormat.Format24bppRgb);
+            BitmapData bmd_Out = b_Out.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.ReadWrite, PixelFormat.Format24bppRgb);
+
+            int stride = bmd_In.Stride;
+            int jump = stride - 3 * w;
+
+            unsafe
+            {
+                byte* ptr_In = (byte*)((void*)bmd_In.Scan0);
+                byte* ptr_Out = (byte*)((void*)bmd_Out.Scan0);
+
+                for (int y = 0; y < h; y++)
+                {
+                    for (int x = 0; x < w; x++)
+                    {
+
+                        // Process Blue  
+
+                        byte b = *(ptr_In + 0);
+
+                        // Process Green    
+
+                        byte g = *(ptr_In + 1);
+
+                        // Process Red    
+
+                        byte r = *(ptr_In + 2);
+
+                        double brightness = (double)((r + g + b) / 3.0);
+                        double hue;
+
+                        if (inversion_Mode== false)
+                        {
+                            hue = 240 - (brightness / 255) * 240;
+                        }
+                        else
+                        {
+                            hue = (brightness / 255) * 240;
+                        }
+                        
+
+                        if (hue >= 0 && hue < 60)
+                        {
+                            *(ptr_Out + 0) = (byte)0; //B
+                            *(ptr_Out + 1) = (byte)((hue / 60) * 255); //G
+                            *(ptr_Out + 2) = (byte)255; //R
+                        }
+                        else if (hue >= 60 && hue < 120)
+                        {
+                            *(ptr_Out + 0) = (byte)0; //B
+                            *(ptr_Out + 1) = (byte)255; //G
+                            *(ptr_Out + 2) = (byte)((255 - ((hue - 60) / 60) * 255)); //R
+                        }
+                        else if (hue >= 120 && hue < 180)
+                        {
+                            *(ptr_Out + 0) = (byte)(((hue - 120) / 60) * 255); //B
+                            *(ptr_Out + 1) = (byte)255; //G
+                            *(ptr_Out + 2) = (byte)0 ; //R
+                        }
+                        else if (hue >= 180 && hue < 240)
+                        {
+                            *(ptr_Out + 0) = (byte)255; //B
+                            *(ptr_Out + 1) = (byte)((255 - (hue - 180) / 60) * 255); //G
+                            *(ptr_Out + 2) = (byte)0; //R
+                        }
+                        else if (hue >= 240 && hue < 300)
+                        {
+                            *(ptr_Out + 0) = (byte)255; //B
+                            *(ptr_Out + 1) = (byte)0; //G
+                            *(ptr_Out + 2) = (byte)(((hue - 240) / 60) * 255); //R                        
+                        }
+                        else
+                        {
+                            *(ptr_Out + 0) = (byte)((255 - (hue - 300) / 60) * 255); //B
+                            *(ptr_Out + 1) = (byte)0; //G
+                            *(ptr_Out + 2) = (byte)255; //R  
+                        }
+                        ptr_Out += 3;
+                        ptr_In += 3;
+                    }
+
+                    ptr_Out += jump;
+                    ptr_In += jump;
+                }
+            }
+
+            b_In.UnlockBits(bmd_In);
+            b_Out.UnlockBits(bmd_Out);
+            return b_Out;
+        }
+
+        public Bitmap Apply_Auto_Contrast(Bitmap b_In)
+        {
+            byte brightness_Min = 255;
+            byte brightness_Max = 0;
+
+            int w = b_In.Width;
+            int h = b_In.Height;            
+
+            BitmapData bmd_In = b_In.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.ReadOnly, PixelFormat.Format24bppRgb);
+
+            int stride = bmd_In.Stride;
+            int jump = stride - 3 * w;
+
+            unsafe
+            {
+                byte* ptr_In = (byte*)((void*)bmd_In.Scan0);
+
+                for (int y = 0; y < h; y++)
+                {
+                    for (int x = 0; x < w; x++)
+                    {
+
+                        // Process Blue  
+                        byte b = *(ptr_In + 0);
+
+                        // Process Green 
+                        byte g = *(ptr_In + 1);
+
+                        // Process Red    
+                        byte r = *(ptr_In + 2);
+
+                        double brightness = (double)((r + g + b) / 3.0);
+
+                        if (brightness > brightness_Max)
+                        {
+                            brightness_Max = (byte)brightness;
+                        }
+
+                        if (brightness < brightness_Min)
+                        {
+                            brightness_Min = (byte)brightness;
+                        }                        
+
+                        ptr_In += 3;
+                    }
+
+                    ptr_In += jump;
+                }
+
+                b_In.UnlockBits(bmd_In);
+
+            }
+
+            //Shrink brightness range by 10%
+            brightness_Min = (byte)(1.1 * brightness_Min);
+            brightness_Max = (byte)(0.9 * brightness_Max);
+
+            //Construct LUT
+            byte[] LUT = new byte[256];
+            double level = 0;
+
+            for (int k = 0; k < 256; k++)
+            {
+
+                if (k < brightness_Min)
+                {
+                    level = 0;
+                }
+                else if (k >= brightness_Min && k < brightness_Max)
+                {
+                    if (brightness_Max != brightness_Min)
+                    {
+                        level = (k - brightness_Min) * 255 / (brightness_Max - brightness_Min);
+                    }
+                    else
+                    {
+                        level = 255;
+                    }
+                }
+                else
+                {
+                    level = 255;
+                }
+
+                LUT[k] = (byte)level;
+            }
+
+            return Apply_LUT(b_In, LUT);           
+        }
+
+        public double Evaluate_RSquared(int[] data, int[] fitted_Data)
+        {
+            double RSS = 0;
+            double TSS = 0;
+            double average = 0;
+            double rSquared = 0;
+            for (int i = 0; i < data.Length; i++)
+            {
+                average += data[i];
+            }
+            average = average / data.Length;
+            for (int j = 0; j < fitted_Data.Length; j++)
+            {
+                RSS += Math.Pow(data[j] - fitted_Data[j], 2);
+                TSS += Math.Pow(data[j] - average, 2);
+
+            }
+            rSquared = 1 - RSS / TSS;
+            return rSquared;
+        }
+
+        public Bitmap Find_Spray_Border(Bitmap b_In, Geometric_Parameters gp, int Capture_No)
+        {
+            int w = b_In.Width;
+            int h = b_In.Height;
+
+
+            Bitmap output_Image = (Bitmap)b_In.Clone();
+
+            entry_Points = new int[h];
+            exit_Points = new int[h];
+
+            BitmapData bmd_In = b_In.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.ReadOnly, PixelFormat.Format24bppRgb);
+            //BitmapData bmd_Out = output_Image.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.ReadWrite, PixelFormat.Format24bppRgb);
+
+            int stride = bmd_In.Stride;
+            int jump = stride - 3 * w;
+
+            unsafe
+            {
+                byte* line_Start_ptr = (byte*)((void*)bmd_In.Scan0);
+                byte* ptr_In = (byte*)(line_Start_ptr + w * 3 / 2 - 3);
+
+                // Process
+                // Fill entry[] from left to right
+
+                for (int y = 0; y < h; y++)
+                {
+                    for (int x = w / 2 - 1; x >= 0; x--) //
+                    {
+
+                        byte b = *(ptr_In + 0);
+                        byte g = *(ptr_In + 1);
+                        byte r = *(ptr_In + 2);
+
+
+
+                        float brightness = (float)((r + g + b) / 3);
+
+                        if (gp.Inverted_Brightness == true)
+                        {
+                            brightness = 255 - brightness;
+                        }
+
+                        if (brightness > gp.Threshold_Value) //gp.Threshold_Value//220
+                        {
+
+                            entry_Points[y] = x;
+
+                            //if (entry_Points[y] > w / 2)
+                            //{
+                            //    entry_Points[y] = w / 2;
+                            //}
+
+                            //ptr_In = ptr_In + stride - (3 * x) - jump;
+                            break;
+                        }
+                        else
+                        {
+                            ptr_In -= 3; //ptr_In += 3;
+                        }
+
+                    }
+
+                    line_Start_ptr += stride;
+                    ptr_In = (byte*)(line_Start_ptr + w * 3 / 2 - 3);
+
+                }
+
+
+
+                //fill exit[] from right to left
+
+                line_Start_ptr = (byte*)((void*)bmd_In.Scan0);
+                ptr_In = (byte*)(line_Start_ptr + w * 3 / 2);
+
+                for (int y = 0; y < h; y++)
+                {
+                    for (int x = w / 2; x < w; x++) //int x = w - 1; x >= 1; x--
+                    {
+
+                        byte b = *(ptr_In + 0);
+                        byte g = *(ptr_In + 1);
+                        byte r = *(ptr_In + 2);
+
+                        float brightness = (float)((r + g + b) / 3);
+
+                        if (gp.Inverted_Brightness == true)
+                        {
+                            brightness = 255 - brightness;
+                        }
+
+                        if (brightness > gp.Threshold_Value) //gp.Threshold_Value//220
+                        {
+                            exit_Points[y] = x;
+                            //if (exit_Points[y] < w / 2)
+                            //{
+                            //    exit_Points[y] = w / 2;
+                            //}
+                            break;
+                        }
+                        else
+                        {
+                            ptr_In += 3; //ptr_In -= 3;
+                        }
+                    }
+                    //ptr_In = ptr_Start + stride; // Go to next line
+                    line_Start_ptr += stride;
+                    ptr_In = (byte*)(line_Start_ptr + w * 3 / 2);
+                }
+            }
+
+            b_In.UnlockBits(bmd_In);
+
+            //Bound border Values
+            //for (int i = 0; i < entry_Points.Length; i++)
+            //{
+
+            //    if (exit_Points[i] < b_In.Width / 2)
+            //    {
+            //        exit_Points[i] = b_In.Width / 2;
+
+            //        if (last_Exit_Point ==0)
+            //        {
+            //            last_Exit_Point = i;
+            //        }
+            //    }
+
+            //    if (entry_Points[i] > b_In.Width / 2)
+            //    {
+            //        entry_Points[i] = b_In.Width / 2;
+
+            //        if (last_Entry_Point == 0)
+            //        {
+            //            last_Entry_Point = i;
+            //        }
+
+            //    }
+
+            //}
+
+            //Automatically find end of calculation zone
+
+            //if (last_Exit_Point == 0 && last_Entry_Point == 0)
+            //{
+            //    last_Exit_Point = (int)gp.Start_Spray_Calculation_Zone + 400;
+            //}
+
+            //if (last_Exit_Point > last_Entry_Point)
+            //{
+            //    gp.End_Spray_Calculation_Zone = last_Exit_Point;
+            //}
+            //else
+            //{
+            //    gp.End_Spray_Calculation_Zone = last_Entry_Point;
+            //}
+
+            //gp.End_Spray_Calculation_Zone = 0.80 * gp.End_Spray_Calculation_Zone;
+
+            //Draw Border Line On OutPut Image 
+            //Draw_Spray_Border_Lines(entry_Points, exit_Points);
+
+            double sum_X = 0;
+            double sum_Y = 0;
+            double sum_XY = 0;
+            double sum_X2 = 0;
+
+
+
+            //Draw left line  
+
+            //For Test//////////// 
+            //for (int i = 0; i < entry_Points.Length; i++)
+            //{
+            //    entry_Points[i] = i + 1;
+            //}
+            /////////////
+
+            for (int x = (int)gp.Start_Spray_Calculation_Zone; x < gp.End_Spray_Calculation_Zone; x++)
+            {
+                double y = entry_Points[x];
+                sum_X += x;
+                sum_Y += y;
+                sum_XY += x * y;
+                sum_X2 += x * x;
+            }
+
+            double n = gp.End_Spray_Calculation_Zone - gp.Start_Spray_Calculation_Zone;
+            double d = n * sum_X2 - sum_X * sum_X;
+
+            if (d != 0)
+            {
+                b_Left_Line = (sum_Y * sum_X2 - sum_X * sum_XY) / d;
+                a_Left_Line = (n * sum_XY - sum_X * sum_Y) / d; // (n * sum_X2 - sum_X2);
+            }
+            else
+            {
+                //MessageBox.Show("Divide by zero!\r\nBad start or end calculation zone!");
+                //divide_by_zero = true;
+            }
+
+            Graphics gfx = Graphics.FromImage(output_Image);
+
+            Pen line_Pen = new Pen(Color.FromArgb(90, Color.Tomato), 4.0F);
+            int x_Max = b_In.Height;
+
+
+            start_Point_Left = new System.Drawing.Point( (int)(a_Left_Line * x_Max + b_Left_Line), x_Max); //(x,y) = (b/a, 0)
+            end_Point_Left = new System.Drawing.Point((int)(b_Left_Line), 0); //(x,y) = (0, b)
+
+            gfx.DrawLine(line_Pen, start_Point_Left, end_Point_Left);
+
+            sum_X = 0;
+            sum_Y = 0;
+
+            sum_XY = 0;
+            sum_X2 = 0;
+
+            //Draw right line
+            for (int x = (int)gp.Start_Spray_Calculation_Zone; x < gp.End_Spray_Calculation_Zone; x++)
+            {
+                double y = exit_Points[x];
+                sum_X += x;
+                sum_Y += y;
+                sum_XY += x * y;
+                sum_X2 += x * x;
+            }
+
+            d = n * sum_X2 - sum_X * sum_X;
+
+            if (d != 0)
+            {
+                b_Right_Line = (sum_Y * sum_X2 - sum_X * sum_XY) / d;
+                a_Right_Line = (n * sum_XY - sum_X * sum_Y) / d; // (n * sum_X2 - sum_X2)
+            }
+            else
+            {
+                //MessageBox.Show("Divide by zero!\r\nBad start or end calculation zone!");
+                //divide_by_zero = true;
+            }
+
+            int output_Width = output_Image.Width;
+
+            start_Point_Right = new System.Drawing.Point( (int)(a_Right_Line * x_Max + b_Right_Line), x_Max); //(x,y) = (b/a, 0)
+            end_Point_Right = new System.Drawing.Point((int)(b_Right_Line), 0); //(x,y) = (w-1, a(w-1) + b)
+
+            gfx.DrawLine(line_Pen, start_Point_Right, end_Point_Right);
+
+            double alpha = Math.Abs((a_Left_Line - a_Right_Line) / (1 + a_Left_Line * a_Right_Line)); //Find Angle Between 2 Border
+            angle_Between_Border = Math.Atan(alpha) * (180 / Math.PI);
+
+
+            //--------------Calculate RSE
+            int[] fitted_Left_Data = new int[entry_Points.Length];
+            int[] fitted_Right_Data = new int[entry_Points.Length];
+
+            for (int i = 0; i < entry_Points.Length; i++)
+            {
+                fitted_Left_Data[i] = (Int16)(a_Left_Line * i + b_Left_Line);
+            }
+
+            for (int i = 0; i < entry_Points.Length; i++)
+            {
+                fitted_Right_Data[i] = (Int16)(a_Right_Line * i + b_Right_Line);
+            }
+
+            switch (Capture_No)
+            {
+                case 0:
+                    RSE_Cap1_Left = Evaluate_RSquared(entry_Points, fitted_Left_Data);
+                    RSE_Cap1_Right = Evaluate_RSquared(exit_Points, fitted_Right_Data);
+                    break;
+
+                case 1:
+                    RSE_Cap2_Left = Evaluate_RSquared(entry_Points, fitted_Left_Data);
+                    RSE_Cap2_Right = Evaluate_RSquared(exit_Points, fitted_Right_Data);
+                    break;
+
+                case 2:
+                    RSE_Cap3_Left = Evaluate_RSquared(entry_Points, fitted_Left_Data);
+                    RSE_Cap3_Right = Evaluate_RSquared(exit_Points, fitted_Right_Data);
+                    break;
+
+                case 3:
+                    RSE_Cap4_Left = Evaluate_RSquared(entry_Points, fitted_Left_Data);
+                    RSE_Cap4_Right = Evaluate_RSquared(exit_Points, fitted_Right_Data);
+                    break;
+            }
+
+            
+
+            //-----------------------------
+
+
+            //Draw Tringle
+            if (gp.Show_Triangle == true)
+            {
+                double left_Angle = (180 - gp.Angle) / 2;
+                double right_Angle = left_Angle;
+
+                double pi = Math.PI;
+
+                alpha = gp.Angle * pi / 180;
+                double beta = left_Angle * pi / 180;
+                double gamma = right_Angle * pi / 180;
+
+                triangle_Vertex = new PointF[3];
+
+                double tan_angle = Math.Tan(beta);
+                double By = (w / 2) * tan_angle;
+
+                triangle_Vertex[0].X = (float)w / 2;
+                triangle_Vertex[0].Y = 0;
+
+                triangle_Vertex[1].X = 0;
+                triangle_Vertex[1].Y = (float)By;
+
+                triangle_Vertex[2].X = (float)w - 1;
+                triangle_Vertex[2].Y = (float)By;
+
+                Pen triangle_Line_Pen = new Pen(Color.Green, 2.0F);
+                SolidBrush fill_Triangle_Brush = new SolidBrush(Color.FromArgb(35, Color.Green));
+
+                gfx.DrawLine(triangle_Line_Pen, triangle_Vertex[0], triangle_Vertex[1]);
+                gfx.DrawLine(triangle_Line_Pen, triangle_Vertex[0], triangle_Vertex[2]);
+                gfx.DrawLine(triangle_Line_Pen, triangle_Vertex[2], triangle_Vertex[1]);
+
+                gfx.FillPolygon(fill_Triangle_Brush, triangle_Vertex);
+            }
+
+            return output_Image;
+        }
+
+        public void Find_Bisector(Bitmap b_In)
+        {
+            double m = 0;
+                     
+
+            if (a_Left_Line * a_Right_Line != 1)
+            {
+                m = (a_Left_Line + a_Right_Line) / (1 - a_Left_Line * a_Right_Line);
+
+                if (m != 0)
+                {
+                    deflaction = (Math.Sqrt(1 + Math.Pow(m, 2)) - 1) / m;
+                }
+                else
+                {
+                    deflaction = 0;
+                }
+            }
+            else
+            {
+                deflaction = 1;
+            }
+
+            double d = Math.Atan(deflaction) * 180 / Math.PI;
+            
+
+            double x0 = (b_Left_Line - b_Right_Line) / (a_Right_Line - a_Left_Line);
+            double y0 = a_Right_Line * x0 + b_Right_Line;
+
+            double x1 = b_In.Height;
+            double y1 = (x1 - x0) * deflaction + y0;
+            
+            start_Bisector = new System.Drawing.Point((int)y0, (int)x0);
+            end_Bisector = new System.Drawing.Point((int)y1, (int)x1);
+
+        }
+
+        public Bitmap Creat_TestPattern(Bitmap b_In)
+        {
+
+            int w = b_In.Width;
+            int h = b_In.Height;
+
+            Bitmap b_Out = (Bitmap)b_In.Clone();
+            //b_Out = new Bitmap(w, h, PixelFormat.Format24bppRgb);
+
+            BitmapData bmd_In = b_In.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.ReadOnly, PixelFormat.Format24bppRgb);
+            BitmapData bmd_Out = b_Out.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.ReadWrite, PixelFormat.Format24bppRgb);
+
+            int stride = bmd_In.Stride;
+            int jump = stride - 3 * w;
+
+            unsafe
+            {
+                byte* ptr_In = (byte*)((void*)bmd_In.Scan0);
+                byte* ptr_Out = (byte*)((void*)bmd_Out.Scan0);
+             
+                for (int y = 0; y < h; y++)
+                {
+                    for (int x = 0; x < w; x++)
+                    {
+                        
+                        byte b = *(ptr_In + 0);
+                        
+                        byte g = *(ptr_In + 1);
+                        
+                        byte r = *(ptr_In + 2);
+                       
+
+                        if (y % 2 == 0)
+                        {
+                            if (x%2==1)
+                            {
+                                *(ptr_Out + 0) = (byte)255; //B
+                                *(ptr_Out + 1) = (byte)255; //G
+                                *(ptr_Out + 2) = (byte)255; //R
+                            }
+                            else
+                            {
+                                *(ptr_Out + 0) = (byte)0; //B
+                                *(ptr_Out + 1) = (byte)0; //G
+                                *(ptr_Out + 2) = (byte)0; //R
+                            }
+
+                        }
+                        else
+                        {
+                            if (x % 2 == 0)
+                            {
+                                *(ptr_Out + 0) = (byte)0; //B
+                                *(ptr_Out + 1) = (byte)0; //G
+                                *(ptr_Out + 2) = (byte)0; //R
+                            }
+                            else
+                            {
+                                *(ptr_Out + 0) = (byte)255; //B
+                                *(ptr_Out + 1) = (byte)255; //G
+                                *(ptr_Out + 2) = (byte)255; //R
+                            }
+                        }
+
+                        ptr_Out += 3;
+                        ptr_In += 3;
+                    }
+
+                    ptr_Out += jump;
+                    ptr_In += jump;
+                }
+
+            }
+
+            b_In.UnlockBits(bmd_In);
+            b_Out.UnlockBits(bmd_Out);
+
+
+            return b_Out;
+        }
+
+        public PointF[,] Simulate_LDS_LUT(int image_width, int test_Count)
+        {                        
+
+            float pixel_Position;
+            float depth;
+
+            PointF[,] Simulate_LUT = new PointF[image_width, test_Count];
+
+            for (int depth_Index = 0; depth_Index < test_Count; depth_Index++) 
+            {
+                for (int width_Index = 0; width_Index < image_width; width_Index++)
+                {
+                    pixel_Position = 0 + 400 * depth_Index;
+                    float alpha = (float)(1 + 0.5 * ((width_Index - 1500.0) / 1500.0));
+                    depth = (float)(1 + 3 * Math.Pow(pixel_Position/4000.0, alpha));
+
+                    Simulate_LUT[width_Index, depth_Index] = new PointF(pixel_Position, depth);  
+                }
+            }
+
+
+            return Simulate_LUT;
+        }
+
+        public Bitmap Apply_Overlay(Bitmap back_Corrected1, Bitmap back_Corrected2)
+        {
+            Bitmap img_Min = new Bitmap(back_Corrected1.Width, back_Corrected1.Height);
+            //Bitmap bg_Out = new Bitmap(bg_in.Width, bg_in.Height, PixelFormat.Format24bppRgb);            
+            BitmapData bmd_back_Corrected1 = back_Corrected1.LockBits(new System.Drawing.Rectangle(0, 0, back_Corrected1.Width, back_Corrected1.Height), ImageLockMode.ReadWrite, PixelFormat.Format24bppRgb);
+            BitmapData bmd_back_Corrected2 = back_Corrected2.LockBits(new System.Drawing.Rectangle(0, 0, back_Corrected2.Width, back_Corrected2.Height), ImageLockMode.ReadWrite, PixelFormat.Format24bppRgb);
+            BitmapData bmd_Averaged = img_Min.LockBits(new System.Drawing.Rectangle(0, 0, img_Min.Width, img_Min.Height), ImageLockMode.ReadWrite, PixelFormat.Format24bppRgb);
+
+            int stride = bmd_back_Corrected1.Stride;
+            int jump = stride - 3 * bmd_back_Corrected1.Width;
+
+            unsafe
+            {
+                byte* ptr_back_Corrected1 = (byte*)((void*)bmd_back_Corrected1.Scan0);
+                byte* ptr_back_Corrected2 = (byte*)((void*)bmd_back_Corrected2.Scan0);
+                byte* ptr_Min = (byte*)((void*)bmd_Averaged.Scan0);
+
+                int brt_back_Corrected1 = 0;
+                int brt_back_Corrected2 = 0;
+                int brt_Min = 0;
+
+
+                for (int y = 0; y < img_Min.Height; y++)
+                {
+                    for (int x = 0; x < img_Min.Width; x++)
+                    {
+                        brt_back_Corrected1 = *(ptr_back_Corrected1 + 0);
+                        brt_back_Corrected2 = *(ptr_back_Corrected2 + 0);
+                        brt_Min = Math.Min(brt_back_Corrected1, brt_back_Corrected2);
+
+
+                        if (brt_Min > 255)
+                        {
+                            brt_Min = 255;
+                        }
+                        if (brt_Min < 0)
+                        {
+                            brt_Min = 0;
+                        }
+
+                        *(ptr_Min + 0) = (byte)brt_Min;
+                        *(ptr_Min + 1) = (byte)brt_Min;
+                        *(ptr_Min + 2) = (byte)brt_Min;
+
+
+
+                        ptr_back_Corrected1 += 3;
+                        ptr_back_Corrected2 += 3;
+                        ptr_Min += 3;
+
+                    }
+                    ptr_back_Corrected1 += jump;
+                    ptr_back_Corrected2 += jump;
+                    ptr_Min += jump;
+                }
+
+                back_Corrected1.UnlockBits(bmd_back_Corrected1);
+                back_Corrected2.UnlockBits(bmd_back_Corrected2);
+                img_Min.UnlockBits(bmd_Averaged);
+            }
+
+            return img_Min;
+        }
+
+        public Bitmap Apply_Average(Bitmap back_Corrected1, Bitmap back_Corrected2)
+        {
+            Bitmap img_Min = new Bitmap(back_Corrected1.Width, back_Corrected1.Height);
+            //Bitmap bg_Out = new Bitmap(bg_in.Width, bg_in.Height, PixelFormat.Format24bppRgb);            
+            BitmapData bmd_back_Corrected1 = back_Corrected1.LockBits(new System.Drawing.Rectangle(0, 0, back_Corrected1.Width, back_Corrected1.Height), ImageLockMode.ReadWrite, PixelFormat.Format24bppRgb);
+            BitmapData bmd_back_Corrected2 = back_Corrected2.LockBits(new System.Drawing.Rectangle(0, 0, back_Corrected2.Width, back_Corrected2.Height), ImageLockMode.ReadWrite, PixelFormat.Format24bppRgb);
+            BitmapData bmd_Averaged = img_Min.LockBits(new System.Drawing.Rectangle(0, 0, img_Min.Width, img_Min.Height), ImageLockMode.ReadWrite, PixelFormat.Format24bppRgb);
+
+            int stride = bmd_back_Corrected1.Stride;
+            int jump = stride - 3 * bmd_back_Corrected1.Width;
+
+            unsafe
+            {
+                byte* ptr_back_Corrected1 = (byte*)((void*)bmd_back_Corrected1.Scan0);
+                byte* ptr_back_Corrected2 = (byte*)((void*)bmd_back_Corrected2.Scan0);
+                byte* ptr_Min = (byte*)((void*)bmd_Averaged.Scan0);
+
+                int brt_back_Corrected1 = 0;
+                int brt_back_Corrected2 = 0;
+                int brt_Min = 0;
+
+
+                for (int y = 0; y < img_Min.Height; y++)
+                {
+                    for (int x = 0; x < img_Min.Width; x++)
+                    {
+                        brt_back_Corrected1 = *(ptr_back_Corrected1 + 0);
+                        brt_back_Corrected2 = *(ptr_back_Corrected2 + 0);
+                        brt_Min = (brt_back_Corrected1 + brt_back_Corrected2) / 2;
+
+
+                        if (brt_Min > 255)
+                        {
+                            brt_Min = 255;
+                        }
+                        if (brt_Min < 0)
+                        {
+                            brt_Min = 0;
+                        }
+
+                        *(ptr_Min + 0) = (byte)brt_Min;
+                        *(ptr_Min + 1) = (byte)brt_Min;
+                        *(ptr_Min + 2) = (byte)brt_Min;
+
+
+
+                        ptr_back_Corrected1 += 3;
+                        ptr_back_Corrected2 += 3;
+                        ptr_Min += 3;
+
+                    }
+                    ptr_back_Corrected1 += jump;
+                    ptr_back_Corrected2 += jump;
+                    ptr_Min += jump;
+                }
+
+                back_Corrected1.UnlockBits(bmd_back_Corrected1);
+                back_Corrected2.UnlockBits(bmd_back_Corrected2);
+                img_Min.UnlockBits(bmd_Averaged);
+            }
+
+            return img_Min;
+        }
+
+        
+
+
+    }
+}
