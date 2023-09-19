@@ -1,0 +1,40 @@
+This XML file does not appear to have any style information associated with it. The document tree is shown below.
+<Project Sdk="Microsoft.NET.Sdk">
+<PropertyGroup>
+<OutputType>WinExe</OutputType>
+<TargetFramework>net6.0-windows</TargetFramework>
+<Nullable>enable</Nullable>
+<UseWPF>true</UseWPF>
+<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+<Platforms>AnyCPU;x64</Platforms>
+</PropertyGroup>
+<ItemGroup>
+<None Remove="13.png"/>
+<None Remove="Motherboard.ico"/>
+</ItemGroup>
+<ItemGroup>
+<COMReference Include="{d37e2a3e-8545-3a39-9f4f-31827c9124ab}">
+<WrapperTool>tlbimp</WrapperTool>
+<VersionMinor>4</VersionMinor>
+<VersionMajor>2</VersionMajor>
+<Guid>d37e2a3e-8545-3a39-9f4f-31827c9124ab</Guid>
+</COMReference>
+</ItemGroup>
+<ItemGroup>
+<None Include="..\.editorconfig" Link=".editorconfig"/>
+</ItemGroup>
+<ItemGroup>
+<PackageReference Include="MD.PersianDateTime" Version="4.5.0"/>
+<PackageReference Include="NetMQ" Version="4.0.1.13"/>
+<PackageReference Include="System.Drawing.Common" Version="7.0.0"/>
+</ItemGroup>
+<ItemGroup>
+<Reference Include="Fenestra">
+<HintPath>..\..\..\FIC3\FIC3\Fenestra.dll</HintPath>
+</Reference>
+</ItemGroup>
+<ItemGroup>
+<Resource Include="13.png"/>
+<Resource Include="Motherboard.ico"/>
+</ItemGroup>
+</Project>
