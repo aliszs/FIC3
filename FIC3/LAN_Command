@@ -1,0 +1,69 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+
+namespace FIC3
+{
+    public class LAN_Command
+    {
+        public UInt16 LAN_Command_WriteToRegister = 0x0001;
+        public UInt16 LAN_Command_WriteToRegisterAcknowledge = 0x00F1;
+        public UInt16 LAN_Command_ReadFromRegister = 0x0002;
+        public UInt16 LAN_Command_ReadFromRegisterAcknowledge = 0x00F2;
+        public UInt16 LAN_Command_ReadFromMemory = 0x0003;
+        public UInt16 LAN_Command_ReadFromMemoryAcknowledge = 0x00F3;
+
+        // -------- General Register Address ------
+        public UInt16 System_Start_Register_Address = 0;
+        public UInt16 Sensor_Start_Register_Address = 1;
+        public UInt16 Sensor_Mode_Register_Address = 2;
+        public UInt16 system_Reset_Register_Address = 3;
+        public UInt16 System_Status_Register_Address = 4;
+        //------ Sensor Register Address ------
+        public UInt16 Sensor_Pattern_Register_Address = 8;
+        public UInt16 Sensor_Row_Start_Register_Address = 9;
+        public UInt16 Sensor_Row_End_Register_Address = 10;
+        public UInt16 Sensor_HighSpeed_Frame_Count_Register_Address = 11;
+        public UInt16 Sensor_Free_Running_Counter_Value_Register_Address = 12;
+        public UInt16 Sensor_Row_Skip_Count_Register_Address = 13;
+        public UInt16 Sensor_Column_Skip_Count_Register_Address = 14;
+        public UInt16 Sensor_Exposure_Time_Register_Address = 15;
+        public UInt16 Sensor_Capture_Delay_Register_Address = 16;
+        public UInt16 Sensor_Reset_Start_Register_Address = 17;
+        public UInt16 Sensor_Reset_Done_Register_Address = 18;
+        public UInt16 Sensor_Calibration_Start_Register_Address = 19;
+        public UInt16 Sensor_Calibration_Done_Register_Address = 20;
+        public UInt16 Sensor_Standby_Start_Register_Address = 21;
+        public UInt16 Sensor_Standby_Done_Register_Address = 22;
+        public UInt16 Sensor_Module_Status_Register_Address = 23;
+        public UInt16 Sensor_Capturing_Start_Register_Address = 24;
+
+        // -------- General Register Data ------
+        public UInt32 System_Start_Register_Data = 0;
+        public UInt32 Sensor_Start_Register_Data = 0;
+        public UInt32 Sensor_Mode_Register_Data = 3; // 0: High Speed mode , 1: Live mode , 2: Config mode , 3 : None mode
+        public UInt32 system_Reset_Register_Data = 0;
+        public UInt32 System_Status_Register_Data = 0;
+        //------ Sensor Register Data ------
+        public UInt32 Sensor_Pattern_Register_Data = 0;
+        public UInt32 Sensor_Row_Start_Register_Data = 0;
+        public UInt32 Sensor_Row_End_Register_Data = 0;
+        public UInt32 Sensor_HighSpeed_Frame_Count_Register_Data = 0;
+        public UInt32 Sensor_Free_Running_Counter_Step_Value_Register_Data = 0;
+        public UInt32 Sensor_Row_Skip_Count_Register_Data = 0;
+        public UInt32 Sensor_Column_Skip_Count_Register_Data = 0;
+        public UInt32 Sensor_Exposure_Time_Register_Data = 0;
+        public UInt32 Sensor_Capture_Delay_Register_Data = 0;
+        public UInt32 Sensor_Reset_Start_Register_Data = 0;
+        public UInt32 Sensor_Reset_Done_Register_Data = 0;
+        public UInt32 Sensor_Calibration_Start_Register_Data = 0;
+        public UInt32 Sensor_Calibration_Done_Register_Data = 0;
+        public UInt32 Sensor_Standby_Start_Register_Data = 0;
+        public UInt32 Sensor_Standby_Done_Register_Data = 0;
+        public UInt32 Sensor_Module_Status_Register_Data = 0;
+        public UInt32 Sensor_Capturing_Start_Register_Data = 0;
+        
+     }
+}
